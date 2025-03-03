@@ -45,7 +45,19 @@ class Query {
             return;
         }
 
-        $embedding_result = Core::get_embedding($vdb_query, 'text-embedding-3-small', 'https://api.openai.com/v1/', $api_key);
+        // Make sure we have a valid model name
+        $model = Settings::get_default_model();
+        if (empty($model)) {
+            $model = 'text-embedding-3-small'; // Default fallback
+        }
+        
+        // Get API base URL with fallback
+        $api_base = Settings::get_api_base();
+        if (empty($api_base)) {
+            $api_base = 'https://api.openai.com/v1/';
+        }
+
+        $embedding_result = Core::get_embedding($vdb_query, $model, $api_base, $api_key);
         if (is_wp_error($embedding_result)) {
             return; // skip
         }

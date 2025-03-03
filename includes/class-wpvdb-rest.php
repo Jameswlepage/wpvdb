@@ -77,12 +77,30 @@ class REST {
         if (!$text || !$api_key) {
             return new WP_Error('invalid_params', 'Missing required fields: text, api_key.', ['status' => 400]);
         }
+        
+        // Ensure text is a string
+        if (!is_string($text)) {
+            if (is_array($text) || is_object($text)) {
+                $text = json_encode($text);
+            } else {
+                $text = strval($text);
+            }
+        }
 
         // Chunk the text
         $chunks = apply_filters('wpvdb_chunk_text', [], $text);
+        if (!is_array($chunks) || empty($chunks)) {
+            return new WP_Error('chunking_error', 'Failed to chunk text.', ['status' => 500]);
+        }
+        
         $inserted = [];
 
         foreach ($chunks as $index => $chunk) {
+            // Skip null or empty chunks
+            if ($chunk === null || $chunk === '') {
+                continue;
+            }
+            
             // Summarize chunk if needed
             $summary = apply_filters('wpvdb_ai_summarize_chunk', '', $chunk);
 
@@ -342,8 +360,18 @@ class REST {
      * @return string hex
      */
     public static function convert_array_to_vector_hex($floats) {
+        if (!is_array($floats)) {
+            // If not an array, return an empty hex string or log an error
+            Core::log_error('convert_array_to_vector_hex received non-array input', ['input' => $floats]);
+            return '';
+        }
+        
         $binary = '';
         foreach ($floats as $f) {
+            // Ensure we have a valid float value
+            if ($f === null) {
+                $f = 0.0;
+            }
             // pack float (32-bit single precision).
             $binary .= pack('f', floatval($f));
         }
@@ -360,21 +388,50 @@ class REST {
      * @return float
      */
     public static function cosine_distance($v1, $v2) {
+        // Validate inputs
+        if (!is_array($v1) || !is_array($v2)) {
+            Core::log_error('cosine_distance received non-array input', [
+                'v1' => $v1,
+                'v2' => $v2
+            ]);
+            return 1.0; // Maximum distance as a safe default
+        }
+        
+        // Ensure arrays are of equal length, pad or truncate if needed
+        $length = count($v1);
+        if (count($v2) != $length) {
+            // Either truncate or pad v2 to match v1's length
+            $v2 = array_slice($v2, 0, $length);
+            while (count($v2) < $length) {
+                $v2[] = 0.0;
+            }
+        }
+        
         $dot = 0.0;
-        $normA = 0.0;
-        $normB = 0.0;
-        $count = min(count($v1), count($v2));
-        for ($i=0; $i < $count; $i++) {
-            $dot += $v1[$i]*$v2[$i];
-            $normA += $v1[$i]*$v1[$i];
-            $normB += $v2[$i]*$v2[$i];
+        $mag1 = 0.0;
+        $mag2 = 0.0;
+        
+        for ($i = 0; $i < $length; $i++) {
+            // Ensure each value is a valid number
+            $val1 = isset($v1[$i]) && is_numeric($v1[$i]) ? floatval($v1[$i]) : 0.0;
+            $val2 = isset($v2[$i]) && is_numeric($v2[$i]) ? floatval($v2[$i]) : 0.0;
+            
+            $dot += $val1 * $val2;
+            $mag1 += $val1 * $val1;
+            $mag2 += $val2 * $val2;
         }
-        if ($normA == 0 || $normB == 0) {
-            // Degenerate vector
-            return 1.0;
+        
+        $mag1 = sqrt($mag1);
+        $mag2 = sqrt($mag2);
+        
+        if ($mag1 == 0 || $mag2 == 0) {
+            return 1.0; // Maximum distance if either vector is zero
         }
-        $cosSim = $dot / (sqrt($normA)*sqrt($normB));
-        // distance = 1 - sim
-        return 1.0 - $cosSim;
+        
+        $similarity = $dot / ($mag1 * $mag2);
+        // Clamp similarity to [-1, 1] to avoid floating point errors
+        $similarity = max(-1.0, min(1.0, $similarity));
+        
+        return 1.0 - $similarity;
     }
 }

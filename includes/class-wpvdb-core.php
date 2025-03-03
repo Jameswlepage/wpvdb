@@ -47,6 +47,21 @@ class Core {
             // If some other filter added chunks, just return them.
             return $chunks;
         }
+        
+        // Check for null or empty text
+        if ($text === null || $text === '') {
+            return [];
+        }
+        
+        // Ensure text is a string
+        if (!is_string($text)) {
+            if (is_array($text) || is_object($text)) {
+                $text = json_encode($text);
+            } else {
+                $text = strval($text);
+            }
+        }
+        
         // Basic approach: split on whitespace, group ~200 words.
         $words = preg_split('/\s+/', $text, -1, PREG_SPLIT_NO_EMPTY);
         $current = [];
@@ -78,6 +93,21 @@ class Core {
         if (!empty($summary)) {
             return $summary;
         }
+        
+        // Check for null or empty text
+        if ($text === null || $text === '') {
+            return '';
+        }
+        
+        // Ensure text is a string
+        if (!is_string($text)) {
+            if (is_array($text) || is_object($text)) {
+                $text = json_encode($text);
+            } else {
+                $text = strval($text);
+            }
+        }
+        
         // In a real environment, you might call the OpenAI Chat or Completions API to summarize.
         // For demonstration, we do a placeholder. If you want a real summary, implement it here.
         // Or remove if you don't want auto-summaries.
@@ -95,6 +125,11 @@ class Core {
      * @return array|WP_Error
      */
     public static function get_embedding($text, $model, $api_base, $api_key) {
+        // Check for null or empty text
+        if ($text === null || $text === '') {
+            return new \WP_Error('embedding_error', 'Empty or null text cannot be embedded.');
+        }
+        
         // Remove newlines (as recommended in many embedding docs).
         $text = str_replace("\n", " ", $text);
 
@@ -108,6 +143,11 @@ class Core {
             // 'encoding_format' => 'float',
         ];
 
+        // Check for null or invalid API key
+        if ($api_key === null || $api_key === '') {
+            return new \WP_Error('embedding_error', 'API key is required for embedding.');
+        }
+        
         $args = [
             'headers' => [
                 'Content-Type'  => 'application/json',
@@ -147,15 +187,29 @@ class Core {
     /**
      * Enhanced chunking that respects semantic boundaries
      * 
-     * @param array $chunks
-     * @param string $text
-     * @param int $chunk_size
+     * @param array $chunks Existing chunks
+     * @param string $text Text to chunk
+     * @param int $chunk_size Optional chunk size override
      * @return array
      */
     public static function enhanced_chunking($chunks, $text, $chunk_size = null) {
         if (!empty($chunks)) {
             // If some other filter added chunks, just return them
             return $chunks;
+        }
+        
+        // Check for null or empty text
+        if ($text === null || $text === '') {
+            return [];
+        }
+        
+        // Ensure text is a string
+        if (!is_string($text)) {
+            if (is_array($text) || is_object($text)) {
+                $text = json_encode($text);
+            } else {
+                $text = strval($text);
+            }
         }
         
         // Get chunk size from settings or use default
@@ -243,26 +297,36 @@ class Core {
     }
 
     /**
-     * Auto-embed new content when posts are published
+     * Automatically embed post content when a post is published
      * 
-     * @param int $post_id
-     * @param WP_Post $post
-     * @param bool $update
+     * @param int $post_id Post ID
+     * @param WP_Post $post Post object
+     * @param bool $update Whether this is an update
      */
     public static function auto_embed_post($post_id, $post, $update) {
+        // Validate inputs
+        if (empty($post_id) || !is_numeric($post_id) || !is_object($post)) {
+            return;
+        }
+        
         // Skip revisions, auto-drafts, etc.
         if (wp_is_post_revision($post_id) || wp_is_post_autosave($post_id)) {
             return;
         }
         
         // Only process published posts
-        if ($post->post_status !== 'publish') {
+        if (!isset($post->post_status) || $post->post_status !== 'publish') {
+            return;
+        }
+        
+        // Check post type property exists
+        if (!isset($post->post_type) || empty($post->post_type)) {
             return;
         }
         
         // Check if this post type should be auto-embedded
         $auto_embed_types = Settings::get_auto_embed_post_types();
-        if (!in_array($post->post_type, $auto_embed_types)) {
+        if (!is_array($auto_embed_types) || !in_array($post->post_type, $auto_embed_types)) {
             return;
         }
         
@@ -271,7 +335,7 @@ class Core {
             return;
         }
         
-        // Queue for background processing
+        // Queue for background processing with validation
         $queue = new WPVDB_Queue();
         $queue->push_to_queue([
             'post_id' => $post_id,

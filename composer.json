@@ -1,5 +1,8 @@
 {
     "require": {
         "woocommerce/action-scheduler": "^3.9"
+    },
+    "require-dev": {
+        "php-stubs/wordpress-stubs": "^6.7"
     }
 }

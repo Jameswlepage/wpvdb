@@ -52,9 +52,6 @@ sleep 5
 # Configure WordPress if not already configured
 cd /var/www/html
 
-# Get the hostname
-HOSTNAME=$(hostname)
-
 # Set up external URLs for WordPress based on the database host
 if [[ $WORDPRESS_DB_HOST == "mysql" ]]; then
     EXTERNAL_URL="http://localhost:9080"
@@ -63,7 +60,6 @@ else
 fi
 
 echo "WordPress external URL will be: ${EXTERNAL_URL}"
-echo "Internal WordPress URL will use hostname: ${HOSTNAME}"
 
 # Check if WordPress is already installed
 echo "Checking if WordPress is installed..."
@@ -71,9 +67,9 @@ if ! $(wp core is-installed --allow-root); then
     echo "Setting up WordPress..."
     
     # Install WordPress
-    # Use container hostname for internal URLs to avoid redirect loops
+    # Use external URL to avoid internal container hostname issues
     wp core install \
-        --url="http://${HOSTNAME}" \
+        --url="${EXTERNAL_URL}" \
         --title="WPVDB Testing Site" \
         --admin_user=admin \
         --admin_password=password \
@@ -94,6 +90,21 @@ if ! $(wp core is-installed --allow-root); then
     echo "Activating WPVDB plugin..."
     wp plugin activate wpvdb --allow-root
     
+    # Run composer install for WPVDB plugin if composer.json exists
+    if [ -f /var/www/html/wp-content/plugins/wpvdb/composer.json ]; then
+        echo "Installing Composer dependencies for WPVDB plugin..."
+        cd /var/www/html/wp-content/plugins/wpvdb
+        if [ -x "$(command -v composer)" ]; then
+            composer install --no-dev
+        else
+            echo "Composer not available. Installing Composer..."
+            curl -sS https://getcomposer.org/installer | php
+            mv composer.phar /usr/local/bin/composer
+            composer install --no-dev
+        fi
+        cd /var/www/html
+    fi
+    
     # Import test data if available
     if [ -f /var/www/html/wp-content/setup/test-data.xml ]; then
         echo "Importing test data..."
@@ -101,8 +112,8 @@ if ! $(wp core is-installed --allow-root); then
         
         # Update URLs if needed
         echo "Updating imported URLs..."
-        wp search-replace 'http://localhost:80' "http://${HOSTNAME}" --all-tables --allow-root
-        wp search-replace 'http://localhost:8000' "http://${HOSTNAME}" --all-tables --allow-root
+        wp search-replace 'http://localhost:80' "${EXTERNAL_URL}" --all-tables --allow-root
+        wp search-replace 'http://localhost:8000' "${EXTERNAL_URL}" --all-tables --allow-root
     fi
     
     echo "WordPress setup complete. You can access it at ${EXTERNAL_URL}"
@@ -110,24 +121,22 @@ if ! $(wp core is-installed --allow-root); then
     echo "Admin password: password"
 else
     echo "WordPress is already installed."
-    # Update URLs if needed
-    echo "Checking and updating URLs if needed..."
-    # Use container hostname for siteurl and home to avoid redirect loops
-    wp option update siteurl "http://${HOSTNAME}" --allow-root
-    wp option update home "http://${HOSTNAME}" --allow-root
+    # Update URLs to use external URL
+    echo "Updating WordPress URLs to use external URL..."
+    wp option update siteurl "${EXTERNAL_URL}" --allow-root
+    wp option update home "${EXTERNAL_URL}" --allow-root
 fi
 
 # Create a test page to confirm functionality
 echo "Creating test page..."
-wp post create --post_type=page --post_title="Test Page" --post_content="This is a test page to confirm WordPress is working. You can access the external site at ${EXTERNAL_URL}" --post_status=publish --allow-root
+wp post create --post_type=page --post_title="Test Page" --post_content="This is a test page to confirm WordPress is working. You can access the site at ${EXTERNAL_URL}" --post_status=publish --allow-root
 
-# Add a note to wp-config.php to help users understand the URL setup
+# Add configuration to wp-config.php for external URL
 if ! grep -q "WPVDB_EXTERNAL_URL" /var/www/html/wp-config.php; then
-    echo "Adding external URL note to wp-config.php"
+    echo "Adding external URL reference to wp-config.php"
     echo "
 /* WPVDB Docker Setup */
 define('WPVDB_EXTERNAL_URL', '${EXTERNAL_URL}');
-/* The site is configured to use the container hostname internally */
 " >> /var/www/html/wp-config.php
 fi
 

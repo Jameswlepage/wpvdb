@@ -27,52 +27,23 @@ if (!defined('WPVDB_DEFAULT_EMBED_DIM')) {
     define('WPVDB_DEFAULT_EMBED_DIM', 1536);
 }
 
-// Try to include Action Scheduler (if available)
-// Check multiple possible locations
-function wpvdb_load_action_scheduler() {
-    // Action Scheduler might already be loaded by a plugin like WooCommerce
-    if (class_exists('ActionScheduler')) {
-        return true;
-    }
-    
-    // Possible file locations to check
-    $possible_paths = [
-        // Our plugin vendor directory
-        WPVDB_PLUGIN_DIR . 'vendor/action-scheduler/action-scheduler.php',
-        // Root vendor directory
-        WP_CONTENT_DIR . '/vendor/woocommerce/action-scheduler/action-scheduler.php',
-        // Plugin installed as a separate plugin
-        WP_PLUGIN_DIR . '/action-scheduler/action-scheduler.php',
-        // WooCommerce's location
-        WP_PLUGIN_DIR . '/woocommerce/includes/libraries/action-scheduler/action-scheduler.php',
-    ];
-    
-    foreach ($possible_paths as $path) {
-        if (file_exists($path)) {
-            require_once $path;
-            return true;
-        }
-    }
-    
-    return false;
+// API Keys can be defined in wp-config.php for better security and environment-specific configuration
+// Example:
+// define('WPVDB_OPENAI_API_KEY', 'your-openai-api-key');
+// define('WPVDB_AUTOMATTIC_API_KEY', 'your-automattic-api-key');
+
+// Include the Composer autoloader
+if (file_exists(WPVDB_PLUGIN_DIR . 'vendor/autoload.php')) {
+    require_once WPVDB_PLUGIN_DIR . 'vendor/autoload.php';
 }
 
-// Load Action Scheduler
-$as_loaded = wpvdb_load_action_scheduler();
-
-// Define constant for Action Scheduler availability
-define('WPVDB_HAS_ACTION_SCHEDULER', function_exists('as_schedule_single_action'));
-
-// Add debug info in admin for troubleshooting
-if (is_admin() && isset($_GET['wpvdb_debug'])) {
-    add_action('admin_notices', function() use ($as_loaded) {
-        echo '<div class="notice notice-info"><p>';
-        echo '<strong>WPVDB Debug Info:</strong><br>';
-        echo 'Action Scheduler Loaded: ' . ($as_loaded ? 'Yes' : 'No') . '<br>';
-        echo 'as_schedule_single_action exists: ' . (function_exists('as_schedule_single_action') ? 'Yes' : 'No') . '<br>';
-        echo 'ActionScheduler class exists: ' . (class_exists('ActionScheduler') ? 'Yes' : 'No') . '<br>';
-        echo '</p></div>';
-    });
+/**
+ * Check if Action Scheduler is available
+ * 
+ * @return bool Whether Action Scheduler is available
+ */
+function wpvdb_has_action_scheduler() {
+    return class_exists('ActionScheduler') && function_exists('as_schedule_single_action');
 }
 
 // Load required files.
@@ -121,7 +92,7 @@ function wpvdb_init_plugin() {
         \WPVDB\Admin::init();
         
         // Show admin notice if Action Scheduler is missing
-        if (!WPVDB_HAS_ACTION_SCHEDULER) {
+        if (!wpvdb_has_action_scheduler()) {
             add_action('admin_notices', 'wpvdb_action_scheduler_missing_notice');
         }
     }
@@ -133,7 +104,7 @@ function wpvdb_init_plugin() {
     add_filter('wpvdb_chunk_text', ['\\WPVDB\\Core', 'enhanced_chunking'], 10, 2);
     
     // Register Action Scheduler handler (if available)
-    if (WPVDB_HAS_ACTION_SCHEDULER) {
+    if (wpvdb_has_action_scheduler()) {
         add_action('wpvdb_process_embedding', ['\\WPVDB\\WPVDB_Queue', 'process_item']);
     }
 }

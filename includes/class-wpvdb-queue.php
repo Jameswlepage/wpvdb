@@ -27,9 +27,9 @@ class WPVDB_Queue {
      */
     public function push_to_queue($data) {
         // Use Action Scheduler if available
-        if (WPVDB_HAS_ACTION_SCHEDULER) {
+        if (function_exists('wpvdb_has_action_scheduler') && wpvdb_has_action_scheduler()) {
             // Note: we use the global function, not namespaced
-            \as_schedule_single_action(
+            as_schedule_single_action(
                 time(), // Run as soon as possible
                 self::PROCESS_SINGLE_ACTION,
                 [$data],
@@ -134,8 +134,37 @@ class WPVDB_Queue {
         
         // Get post content
         $post = get_post($post_id);
-        if (!$post) {
+        
+        if (!$post || !is_object($post)) {
             Core::log_error('Post not found', ['post_id' => $post_id]);
+            return false;
+        }
+        
+        // Validate post content
+        if (!isset($post->post_title) || !isset($post->post_content)) {
+            Core::log_error('Post missing required fields', ['post_id' => $post_id]);
+            return false;
+        }
+        
+        // Get API key
+        $api_key = Settings::get_api_key();
+        
+        if (empty($api_key)) {
+            Core::log_error('No API key configured', ['post_id' => $post_id]);
+            return false;
+        }
+        
+        // Get API base
+        $api_base = Settings::get_api_base();
+        
+        // Combine content (title + content)
+        $title = !empty($post->post_title) ? $post->post_title : '';
+        $content = !empty($post->post_content) ? wp_strip_all_tags($post->post_content) : '';
+        $text = $title . "\n\n" . $content;
+        
+        // Ensure we have actual content to embed
+        if (trim($text) === '') {
+            Core::log_error('Post has no content to embed', ['post_id' => $post_id]);
             return false;
         }
         

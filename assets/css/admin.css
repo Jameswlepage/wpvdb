@@ -131,4 +131,68 @@
     height: 100%;
     background-color: #2271b1;
     transition: width 0.3s ease;
+}
+
+/* Embedding status indicator in post lists */
+.wpvdb-status-dot {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    margin: 0 auto;
+}
+
+.wpvdb-status-dot.embedded {
+    background-color: #46b450;
+    box-shadow: 0 0 4px rgba(70, 180, 80, 0.6);
+}
+
+.wpvdb-status-dot.not-embedded {
+    background-color: #ccc;
+    border: 1px solid #999;
+}
+
+/* Make the embedding column centered */
+.column-wpvdb_embedded {
+    width: 80px;
+    text-align: center;
+}
+
+/* WooCommerce-like section navigation */
+.wpvdb-section-nav {
+    margin: 0 0 1em;
+    padding: 0;
+    border-bottom: 1px solid #ccc;
+}
+
+.wpvdb-section-nav span.divider {
+    display: inline-block;
+    margin: 0 6px;
+    color: #ccc;
+}
+
+.wpvdb-section-nav a {
+    display: inline-block;
+    margin: 0;
+    padding: 6px 0;
+    text-decoration: none;
+}
+
+.wpvdb-section-nav a.current {
+    color: #000;
+    font-weight: 600;
+}
+
+/* Existing tab panel styles */
+.wpvdb-tab-content {
+    background: #fff;
+    padding: 20px 0;
+}
+
+.wpvdb-tab-pane {
+    display: none;
+}
+
+.wpvdb-tab-pane.active {
+    display: block;
 } 

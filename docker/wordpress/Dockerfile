@@ -13,17 +13,27 @@ RUN apt-get update && apt-get install -y \
     && docker-php-ext-install pdo_mysql \
     && rm -rf /var/lib/apt/lists/*
 
+# Install Composer
+RUN curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
+
+# Configure Apache for WordPress properly
+RUN a2enmod rewrite
+RUN { \
+    echo '<Directory /var/www/html>'; \
+    echo '  AllowOverride All'; \
+    echo '  Options -Indexes +FollowSymLinks'; \
+    echo '  ServerSignature Off'; \
+    echo '  UseCanonicalName Off'; \
+    echo '</Directory>'; \
+} > /etc/apache2/conf-available/wordpress.conf && \
+a2enconf wordpress
+
 # Set up WordPress initialization scripts
 COPY entrypoint.sh /usr/local/bin/wpvdb-entrypoint.sh
 RUN chmod +x /usr/local/bin/wpvdb-entrypoint.sh
 
-# Download and install Action Scheduler
-RUN mkdir -p /usr/src/action-scheduler \
-    && cd /usr/src/action-scheduler \
-    && curl -L https://github.com/woocommerce/action-scheduler/archive/refs/tags/3.5.4.zip -o action-scheduler.zip \
-    && unzip action-scheduler.zip \
-    && rm action-scheduler.zip \
-    && mv action-scheduler-3.5.4 action-scheduler
+# Copy .htaccess file
+COPY htaccess /var/www/html/.htaccess
 
 # Extend the entrypoint to run our setup script
 ENTRYPOINT ["wpvdb-entrypoint.sh"]

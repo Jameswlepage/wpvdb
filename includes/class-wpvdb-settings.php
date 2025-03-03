@@ -9,94 +9,7 @@ class Settings {
      * Initialize settings
      */
     public static function init() {
-        add_action('admin_init', [__CLASS__, 'register_settings']);
-    }
-    
-    /**
-     * Register plugin settings
-     */
-    public static function register_settings() {
-        // API Settings section
-        add_settings_section(
-            'wpvdb_api_settings',
-            __('API Settings', 'wpvdb'),
-            [__CLASS__, 'render_api_settings_section'],
-            'wpvdb_settings'
-        );
-        
-        // Model defaults section
-        add_settings_section(
-            'wpvdb_model_settings',
-            __('Model Settings', 'wpvdb'),
-            [__CLASS__, 'render_model_settings_section'],
-            'wpvdb_settings'
-        );
-        
-        // Processing section
-        add_settings_section(
-            'wpvdb_processing_settings',
-            __('Processing Settings', 'wpvdb'),
-            [__CLASS__, 'render_processing_settings_section'],
-            'wpvdb_settings'
-        );
-        
-        // Register settings
-        register_setting('wpvdb_settings', 'wpvdb_api_key', [
-            'type' => 'string',
-            'sanitize_callback' => [__CLASS__, 'encrypt_api_key'],
-            'show_in_rest' => false,
-        ]);
-        
-        register_setting('wpvdb_settings', 'wpvdb_api_base', [
-            'type' => 'string',
-            'default' => 'https://api.openai.com/v1/',
-            'show_in_rest' => false,
-        ]);
-        
-        register_setting('wpvdb_settings', 'wpvdb_default_model', [
-            'type' => 'string',
-            'default' => 'text-embedding-3-small',
-            'show_in_rest' => false,
-        ]);
-        
-        register_setting('wpvdb_settings', 'wpvdb_chunk_size', [
-            'type' => 'integer',
-            'default' => 200,
-            'show_in_rest' => false,
-        ]);
-        
-        register_setting('wpvdb_settings', 'wpvdb_auto_embed_post_types', [
-            'type' => 'array',
-            'default' => ['post'],
-            'show_in_rest' => false,
-        ]);
-        
-        register_setting('wpvdb_settings', 'wpvdb_enable_summarization', [
-            'type' => 'boolean',
-            'default' => false,
-            'show_in_rest' => false,
-        ]);
-    }
-    
-    /**
-     * Render API settings section
-     */
-    public static function render_api_settings_section() {
-        echo '<p>' . __('Configure your embedding provider API settings.', 'wpvdb') . '</p>';
-    }
-    
-    /**
-     * Render model settings section
-     */
-    public static function render_model_settings_section() {
-        echo '<p>' . __('Configure embedding model settings.', 'wpvdb') . '</p>';
-    }
-    
-    /**
-     * Render processing settings section
-     */
-    public static function render_processing_settings_section() {
-        echo '<p>' . __('Configure text processing and chunking settings.', 'wpvdb') . '</p>';
+        // No action needed - settings are registered in Admin class
     }
     
     /**
@@ -107,12 +20,8 @@ class Settings {
             return '';
         }
         
-        // Use WordPress core functionality for encryption if available
-        if (function_exists('wp_encrypt')) {
-            return wp_encrypt($api_key);
-        }
-        
-        // Otherwise store securely with a one-way indicator that it's set
+        // WordPress core doesn't have a built-in encryption function
+        // Store securely with a one-way indicator that it's set
         // (not the actual key - just a placeholder)
         return '*****' . substr(md5($api_key), 0, 8);
     }
@@ -121,7 +30,19 @@ class Settings {
      * Get API key with fallback to filter
      */
     public static function get_api_key() {
-        $api_key = get_option('wpvdb_api_key', '');
+        $settings = get_option('wpvdb_settings', []);
+        $provider = isset($settings['active_provider']) ? $settings['active_provider'] : 'openai';
+        
+        // Check for constants defined in wp-config.php first
+        if ($provider === 'openai' && defined('WPVDB_OPENAI_API_KEY')) {
+            return \constant('WPVDB_OPENAI_API_KEY');
+        }
+        
+        if ($provider === 'automattic' && defined('WPVDB_AUTOMATTIC_API_KEY')) {
+            return \constant('WPVDB_AUTOMATTIC_API_KEY');
+        }
+        
+        $api_key = isset($settings[$provider]['api_key']) ? $settings[$provider]['api_key'] : '';
         
         // If no key in options, check filter
         if (empty($api_key)) {
@@ -132,37 +53,65 @@ class Settings {
     }
     
     /**
+     * Get API key for a specific provider
+     */
+    public static function get_provider_api_key($provider) {
+        // Check for constants defined in wp-config.php first
+        if ($provider === 'openai' && defined('WPVDB_OPENAI_API_KEY')) {
+            return \constant('WPVDB_OPENAI_API_KEY');
+        }
+        
+        if ($provider === 'automattic' && defined('WPVDB_AUTOMATTIC_API_KEY')) {
+            return \constant('WPVDB_AUTOMATTIC_API_KEY');
+        }
+        
+        // Fall back to database settings
+        $settings = get_option('wpvdb_settings', []);
+        return isset($settings[$provider]['api_key']) ? $settings[$provider]['api_key'] : '';
+    }
+    
+    /**
      * Get API base URL
      */
     public static function get_api_base() {
-        return get_option('wpvdb_api_base', 'https://api.openai.com/v1/');
+        $settings = get_option('wpvdb_settings', []);
+        return isset($settings['api_base']) ? $settings['api_base'] : 'https://api.openai.com/v1/';
     }
     
     /**
      * Get default embedding model
      */
     public static function get_default_model() {
-        return get_option('wpvdb_default_model', 'text-embedding-3-small');
+        $settings = get_option('wpvdb_settings', []);
+        $provider = isset($settings['active_provider']) ? $settings['active_provider'] : 'openai';
+        return isset($settings[$provider]['default_model']) 
+            ? $settings[$provider]['default_model'] 
+            : ($provider === 'openai' ? 'text-embedding-3-small' : 'automattic-embeddings-001');
     }
     
     /**
      * Get chunk size setting
      */
     public static function get_chunk_size() {
-        return get_option('wpvdb_chunk_size', 200);
+        $settings = get_option('wpvdb_settings', []);
+        return isset($settings['chunk_size']) ? $settings['chunk_size'] : 1000;
     }
     
     /**
      * Get auto-embed post types
      */
     public static function get_auto_embed_post_types() {
-        return get_option('wpvdb_auto_embed_post_types', ['post']);
+        $settings = get_option('wpvdb_settings', []);
+        return isset($settings['post_types']) && is_array($settings['post_types']) 
+            ? $settings['post_types'] 
+            : ['post'];
     }
     
     /**
      * Check if summarization is enabled
      */
     public static function is_summarization_enabled() {
-        return get_option('wpvdb_enable_summarization', false);
+        $settings = get_option('wpvdb_settings', []);
+        return isset($settings['enable_summarization']) ? (bool)$settings['enable_summarization'] : false;
     }
 } 
