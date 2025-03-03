@@ -1,0 +1,31 @@
+# Docker volumes created at runtime
+docker-compose.override.yml
+
+# PHP dependencies (if you add them later)
+/vendor/
+
+# Logs
+*.log
+logs/
+debug.log
+
+# Environment files
+.env
+.env.*
+
+# Editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Action Scheduler files (if downloaded locally)
+/includes/lib/action-scheduler/
+
+# Built/distribution files
+*.zip
+/dist/
+/build/ 

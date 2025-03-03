@@ -1,0 +1,35 @@
+# Version control
+.git
+.github
+.gitignore
+
+# Docker files
+docker-compose.yml
+docker
+.dockerignore
+
+# Node.js dependency directory
+node_modules
+
+# Logs
+*.log
+logs
+
+# Environment variables
+.env
+.env.*
+
+# Development files
+*.md
+README.md
+CONTRIBUTING.md
+LICENSE
+
+# Build artifacts
+build
+dist
+*.zip
+
+# OS files
+.DS_Store
+Thumbs.db 

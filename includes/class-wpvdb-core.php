@@ -1,0 +1,282 @@
+<?php
+namespace WPVDB;
+
+defined('ABSPATH') || exit;
+
+class Core {
+
+    /**
+     * Initialize core hooks or filters.
+     */
+    public static function init() {
+        // Show an admin notice if DB vector support is missing.
+        add_action('admin_notices', [__CLASS__, 'maybe_show_db_warning_notice']);
+
+        // (Optional) Provide a filter for chunking text.
+        add_filter('wpvdb_chunk_text', [__CLASS__, 'default_chunking'], 10, 2);
+
+        // Provide a filter to process or summarize chunks.
+        add_filter('wpvdb_ai_summarize_chunk', [__CLASS__, 'default_summary'], 10, 2);
+    }
+
+    /**
+     * If the DB doesn't support native vectors, show a warning (if user is admin).
+     */
+    public static function maybe_show_db_warning_notice() {
+        if (!current_user_can('manage_options')) {
+            return;
+        }
+        $warning = get_option('wpvdb_db_vector_support_warning', 0);
+        if ($warning) {
+            echo '<div class="notice notice-warning"><p>';
+            esc_html_e('WPVDB: Your database does not support native vector columns (MariaDB 11.7+ or MySQL 9+). Fallback storage is used, which may reduce performance.', 'wpvdb');
+            echo '</p></div>';
+        }
+    }
+
+    /**
+     * Simple default chunking approach: split text into ~200 word chunks with minimal overlap.
+     * Developers can override this via the 'wpvdb_chunk_text' filter.
+     *
+     * @param array  $chunks existing array of chunks if any (often empty).
+     * @param string $text   the text to chunk.
+     * @return array of chunk strings
+     */
+    public static function default_chunking($chunks, $text) {
+        if (!empty($chunks)) {
+            // If some other filter added chunks, just return them.
+            return $chunks;
+        }
+        // Basic approach: split on whitespace, group ~200 words.
+        $words = preg_split('/\s+/', $text, -1, PREG_SPLIT_NO_EMPTY);
+        $current = [];
+        $limit = 200;
+        $out = [];
+
+        foreach ($words as $w) {
+            $current[] = $w;
+            if (count($current) >= $limit) {
+                $out[] = implode(' ', $current);
+                $current = [];
+            }
+        }
+        if (!empty($current)) {
+            $out[] = implode(' ', $current);
+        }
+        return $out;
+    }
+
+    /**
+     * Default summarization approach using OpenAI or does nothing if no API configured.
+     * Called via filter 'wpvdb_ai_summarize_chunk'.
+     *
+     * @param string $summary existing summary if any
+     * @param string $text    chunk text
+     * @return string summarization
+     */
+    public static function default_summary($summary, $text) {
+        if (!empty($summary)) {
+            return $summary;
+        }
+        // In a real environment, you might call the OpenAI Chat or Completions API to summarize.
+        // For demonstration, we do a placeholder. If you want a real summary, implement it here.
+        // Or remove if you don't want auto-summaries.
+        return '[AI Summary placeholder]';
+    }
+
+    /**
+     * Utility function: calls the external embedding API (e.g. OpenAI) for a single chunk of text.
+     * Returns array of floats, or WP_Error on failure.
+     *
+     * @param string $text The text to embed.
+     * @param string $model The embedding model name. e.g. 'text-embedding-3-small'
+     * @param string $api_base OpenAI-compatible endpoint base URL.
+     * @param string $api_key  Your embedding provider API key.
+     * @return array|WP_Error
+     */
+    public static function get_embedding($text, $model, $api_base, $api_key) {
+        // Remove newlines (as recommended in many embedding docs).
+        $text = str_replace("\n", " ", $text);
+
+        // Example using WP remote post:
+        $url = trailingslashit($api_base) . 'embeddings';
+        $body = [
+            'model' => $model,
+            'input' => $text,
+            // If the provider supports controlling dimension or format, you could add:
+            // 'dimensions' => WPVDB_DEFAULT_EMBED_DIM,
+            // 'encoding_format' => 'float',
+        ];
+
+        $args = [
+            'headers' => [
+                'Content-Type'  => 'application/json',
+                'Authorization' => 'Bearer ' . $api_key,
+            ],
+            'body'    => wp_json_encode($body),
+            'timeout' => 30,
+        ];
+
+        $response = wp_remote_post($url, $args);
+        if (is_wp_error($response)) {
+            return $response;
+        }
+        $code = wp_remote_retrieve_response_code($response);
+        if ($code !== 200) {
+            return new \WP_Error('embedding_error', 'Failed to get embedding: ' . $code . ' ' . wp_remote_retrieve_body($response));
+        }
+
+        $data = json_decode(wp_remote_retrieve_body($response), true);
+        if (!isset($data['data'][0]['embedding']) || !is_array($data['data'][0]['embedding'])) {
+            return new \WP_Error('embedding_error', 'Invalid embedding response structure.');
+        }
+
+        return $data['data'][0]['embedding'];
+    }
+
+    // Add a logging function
+    public static function log_error($message, $context = []) {
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log('WPVDB Error: ' . $message . ' ' . wp_json_encode($context));
+        }
+        
+        // Maybe store in database for admin viewing
+        // ...
+    }
+
+    /**
+     * Enhanced chunking that respects semantic boundaries
+     * 
+     * @param array $chunks
+     * @param string $text
+     * @param int $chunk_size
+     * @return array
+     */
+    public static function enhanced_chunking($chunks, $text, $chunk_size = null) {
+        if (!empty($chunks)) {
+            // If some other filter added chunks, just return them
+            return $chunks;
+        }
+        
+        // Get chunk size from settings or use default
+        if (null === $chunk_size) {
+            $chunk_size = Settings::get_chunk_size();
+        }
+        
+        // Split into paragraphs first
+        $paragraphs = preg_split('/\n\s*\n/', $text, -1, PREG_SPLIT_NO_EMPTY);
+        $current_chunk = '';
+        $current_words = 0;
+        $chunks = [];
+        
+        foreach ($paragraphs as $paragraph) {
+            // Clean whitespace
+            $paragraph = trim($paragraph);
+            if (empty($paragraph)) {
+                continue;
+            }
+            
+            // Count words in this paragraph
+            $paragraph_words = str_word_count($paragraph);
+            
+            // If adding this paragraph would exceed chunk size and we already have content,
+            // save current chunk and start a new one
+            if ($current_words > 0 && ($current_words + $paragraph_words) > $chunk_size) {
+                $chunks[] = $current_chunk;
+                $current_chunk = $paragraph;
+                $current_words = $paragraph_words;
+            } 
+            // If this single paragraph exceeds chunk size, we need to split it
+            elseif ($paragraph_words > $chunk_size) {
+                // If we have a current chunk, save it first
+                if ($current_words > 0) {
+                    $chunks[] = $current_chunk;
+                    $current_chunk = '';
+                    $current_words = 0;
+                }
+                
+                // Split paragraph into sentences
+                $sentences = preg_split('/(?<=[.!?])\s+/', $paragraph, -1, PREG_SPLIT_NO_EMPTY);
+                $sentence_chunk = '';
+                $sentence_words = 0;
+                
+                foreach ($sentences as $sentence) {
+                    $sentence_word_count = str_word_count($sentence);
+                    
+                    // If adding this sentence would exceed chunk size and we have content,
+                    // save current sentence chunk and start a new one
+                    if ($sentence_words > 0 && ($sentence_words + $sentence_word_count) > $chunk_size) {
+                        $chunks[] = $sentence_chunk;
+                        $sentence_chunk = $sentence;
+                        $sentence_words = $sentence_word_count;
+                    } else {
+                        // Add to current sentence chunk
+                        if (!empty($sentence_chunk)) {
+                            $sentence_chunk .= ' ';
+                        }
+                        $sentence_chunk .= $sentence;
+                        $sentence_words += $sentence_word_count;
+                    }
+                }
+                
+                // Add any remaining sentence chunk
+                if (!empty($sentence_chunk)) {
+                    $chunks[] = $sentence_chunk;
+                }
+            } 
+            // Otherwise, add to current chunk
+            else {
+                if (!empty($current_chunk)) {
+                    $current_chunk .= "\n\n";
+                }
+                $current_chunk .= $paragraph;
+                $current_words += $paragraph_words;
+            }
+        }
+        
+        // Add any remaining content
+        if (!empty($current_chunk)) {
+            $chunks[] = $current_chunk;
+        }
+        
+        return $chunks;
+    }
+
+    /**
+     * Auto-embed new content when posts are published
+     * 
+     * @param int $post_id
+     * @param WP_Post $post
+     * @param bool $update
+     */
+    public static function auto_embed_post($post_id, $post, $update) {
+        // Skip revisions, auto-drafts, etc.
+        if (wp_is_post_revision($post_id) || wp_is_post_autosave($post_id)) {
+            return;
+        }
+        
+        // Only process published posts
+        if ($post->post_status !== 'publish') {
+            return;
+        }
+        
+        // Check if this post type should be auto-embedded
+        $auto_embed_types = Settings::get_auto_embed_post_types();
+        if (!in_array($post->post_type, $auto_embed_types)) {
+            return;
+        }
+        
+        // Skip if already processed
+        if (get_post_meta($post_id, '_wpvdb_embedded', true)) {
+            return;
+        }
+        
+        // Queue for background processing
+        $queue = new WPVDB_Queue();
+        $queue->push_to_queue([
+            'post_id' => $post_id,
+            'model' => Settings::get_default_model(),
+        ]);
+        $queue->save()->dispatch();
+    }
+}

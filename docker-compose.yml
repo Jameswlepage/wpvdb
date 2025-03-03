@@ -1,0 +1,128 @@
+# WordPress Vector Database Docker Setup
+
+services:
+  # MySQL 9.0 Database
+  mysql:
+    image: mysql:latest
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./docker/mysql/init:/docker-entrypoint-initdb.d
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: wordpress
+      MYSQL_DATABASE: wordpress
+      MYSQL_USER: wordpress
+      MYSQL_PASSWORD: wordpress
+    command: >
+      --local-infile=1
+    ports:
+      - "3306:3306"
+
+  # MariaDB Database
+  mariadb:
+    image: mariadb:11.7-rc
+    volumes:
+      - mariadb_data:/var/lib/mysql
+      - ./docker/mariadb/init:/docker-entrypoint-initdb.d
+    restart: always
+    environment:
+      MARIADB_ROOT_PASSWORD: wordpress
+      MARIADB_DATABASE: wordpress
+      MARIADB_USER: wordpress
+      MARIADB_PASSWORD: wordpress
+    ports:
+      - "3307:3306"
+    
+  # WordPress with MySQL
+  wordpress-mysql:
+    build:
+      context: ./docker/wordpress
+      dockerfile: Dockerfile
+    depends_on:
+      - mysql
+    ports:
+      - "8080:80"
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+    environment:
+      WORDPRESS_DB_HOST: mysql
+      WORDPRESS_DB_USER: wordpress
+      WORDPRESS_DB_PASSWORD: wordpress
+      WORDPRESS_DB_NAME: wordpress
+      WORDPRESS_DEBUG: 1
+      WORDPRESS_CONFIG_EXTRA: |
+        define('WP_ENVIRONMENT_TYPE', 'development');
+        define('WP_DEBUG_LOG', true);
+        define('WP_DEBUG_DISPLAY', true);
+        define('SCRIPT_DEBUG', true);
+        ini_set('display_errors', 1);
+        ini_set('display_startup_errors', 1);
+        error_reporting(E_ALL);
+    volumes:
+      - wordpress_mysql_data:/var/www/html
+      - ./:/var/www/html/wp-content/plugins/wpvdb
+      - ./docker/wordpress/setup:/var/www/html/wp-content/setup
+
+  # WordPress with MariaDB
+  wordpress-mariadb:
+    build:
+      context: ./docker/wordpress
+      dockerfile: Dockerfile
+    depends_on:
+      - mariadb
+    ports:
+      - "8081:80"
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+    environment:
+      WORDPRESS_DB_HOST: mariadb
+      WORDPRESS_DB_USER: wordpress
+      WORDPRESS_DB_PASSWORD: wordpress
+      WORDPRESS_DB_NAME: wordpress
+      WORDPRESS_DEBUG: 1
+      WORDPRESS_CONFIG_EXTRA: |
+        define('WP_ENVIRONMENT_TYPE', 'development');
+        define('WP_DEBUG_LOG', true);
+        define('WP_DEBUG_DISPLAY', true);
+        define('SCRIPT_DEBUG', true);
+        ini_set('display_errors', 1);
+        ini_set('display_startup_errors', 1);
+        error_reporting(E_ALL);
+    volumes:
+      - wordpress_mariadb_data:/var/www/html
+      - ./:/var/www/html/wp-content/plugins/wpvdb
+      - ./docker/wordpress/setup:/var/www/html/wp-content/setup
+
+  # phpMyAdmin for MySQL - Using Adminer as a lightweight alternative that works on ARM64
+  phpmyadmin-mysql:
+    image: adminer:latest
+    depends_on:
+      - mysql
+    ports:
+      - "8180:8080"
+    environment:
+      ADMINER_DEFAULT_SERVER: mysql
+      ADMINER_DESIGN: pepa-linha
+
+  # phpMyAdmin for MariaDB - Using Adminer as a lightweight alternative that works on ARM64
+  phpmyadmin-mariadb:
+    image: adminer:latest
+    depends_on:
+      - mariadb
+    ports:
+      - "8181:8080"
+    environment:
+      ADMINER_DEFAULT_SERVER: mariadb
+      ADMINER_DESIGN: pepa-linha
+
+volumes:
+  mysql_data:
+  mariadb_data:
+  wordpress_mysql_data:
+  wordpress_mariadb_data: 
