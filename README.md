@@ -39,8 +39,8 @@ docker-compose up -d
 
 This will start two separate WordPress instances:
 
-- **WordPress with MySQL 9.0+**: http://localhost:8080
-- **WordPress with MariaDB 11.7+**: http://localhost:8081
+- **WordPress with MySQL 9.0+**: http://localhost:9080
+- **WordPress with MariaDB 11.7+**: http://localhost:9081
 
 Both instances have:
 - Admin username: `admin` 
@@ -48,8 +48,8 @@ Both instances have:
 
 ### Database Administration
 
-- **MySQL Admin (Adminer)**: http://localhost:8180
-- **MariaDB Admin (Adminer)**: http://localhost:8181
+- **MySQL Admin (Adminer)**: http://localhost:9180
+- **MariaDB Admin (Adminer)**: http://localhost:9181
 - Login with:
   - System: MySQL (or MariaDB)
   - Server: mysql (or mariadb)
@@ -61,14 +61,14 @@ Both instances have:
 
 #### For MySQL 9.0+:
 
-1. Visit http://localhost:8080/wp-admin
+1. Visit http://localhost:9080/wp-admin
 2. Configure API keys in Vector DB settings
 3. Generate embeddings for sample content
 4. Test vector search using the native MySQL vector type
 
 #### For MariaDB 11.7+:
 
-1. Visit http://localhost:8081/wp-admin
+1. Visit http://localhost:9081/wp-admin
 2. Configure API keys in Vector DB settings
 3. Generate embeddings for sample content
 4. Test vector search using MariaDB's vector implementation

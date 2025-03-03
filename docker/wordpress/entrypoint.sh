@@ -52,14 +52,18 @@ sleep 5
 # Configure WordPress if not already configured
 cd /var/www/html
 
-# Figure out the external URL based on environment
+# Get the hostname
+HOSTNAME=$(hostname)
+
+# Set up external URLs for WordPress based on the database host
 if [[ $WORDPRESS_DB_HOST == "mysql" ]]; then
-    SITE_URL="http://localhost:8080"
+    EXTERNAL_URL="http://localhost:9080"
 else
-    SITE_URL="http://localhost:8081"
+    EXTERNAL_URL="http://localhost:9081"
 fi
 
-echo "WordPress site URL will be: ${SITE_URL}"
+echo "WordPress external URL will be: ${EXTERNAL_URL}"
+echo "Internal WordPress URL will use hostname: ${HOSTNAME}"
 
 # Check if WordPress is already installed
 echo "Checking if WordPress is installed..."
@@ -67,8 +71,9 @@ if ! $(wp core is-installed --allow-root); then
     echo "Setting up WordPress..."
     
     # Install WordPress
+    # Use container hostname for internal URLs to avoid redirect loops
     wp core install \
-        --url=$SITE_URL \
+        --url="http://${HOSTNAME}" \
         --title="WPVDB Testing Site" \
         --admin_user=admin \
         --admin_password=password \
@@ -93,18 +98,38 @@ if ! $(wp core is-installed --allow-root); then
     if [ -f /var/www/html/wp-content/setup/test-data.xml ]; then
         echo "Importing test data..."
         wp import /var/www/html/wp-content/setup/test-data.xml --authors=create --allow-root
+        
+        # Update URLs if needed
+        echo "Updating imported URLs..."
+        wp search-replace 'http://localhost:80' "http://${HOSTNAME}" --all-tables --allow-root
+        wp search-replace 'http://localhost:8000' "http://${HOSTNAME}" --all-tables --allow-root
     fi
     
-    echo "WordPress setup complete. You can access it at $SITE_URL"
+    echo "WordPress setup complete. You can access it at ${EXTERNAL_URL}"
     echo "Admin username: admin"
     echo "Admin password: password"
 else
     echo "WordPress is already installed."
+    # Update URLs if needed
+    echo "Checking and updating URLs if needed..."
+    # Use container hostname for siteurl and home to avoid redirect loops
+    wp option update siteurl "http://${HOSTNAME}" --allow-root
+    wp option update home "http://${HOSTNAME}" --allow-root
 fi
 
 # Create a test page to confirm functionality
 echo "Creating test page..."
-wp post create --post_type=page --post_title="Test Page" --post_content="This is a test page to confirm WordPress is working." --post_status=publish --allow-root
+wp post create --post_type=page --post_title="Test Page" --post_content="This is a test page to confirm WordPress is working. You can access the external site at ${EXTERNAL_URL}" --post_status=publish --allow-root
+
+# Add a note to wp-config.php to help users understand the URL setup
+if ! grep -q "WPVDB_EXTERNAL_URL" /var/www/html/wp-config.php; then
+    echo "Adding external URL note to wp-config.php"
+    echo "
+/* WPVDB Docker Setup */
+define('WPVDB_EXTERNAL_URL', '${EXTERNAL_URL}');
+/* The site is configured to use the container hostname internally */
+" >> /var/www/html/wp-config.php
+fi
 
 # Keep the container running
 wait 

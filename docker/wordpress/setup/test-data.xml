@@ -9,22 +9,22 @@
 
 <channel>
 	<title>WPVDB Test Data</title>
-	<link>http://localhost:8000</link>
+	<link>http://localhost:80</link>
 	<description>Vector Database Test Data</description>
 	<pubDate>Mon, 06 Mar 2023 12:00:00 +0000</pubDate>
 	<language>en-US</language>
 	<wp:wxr_version>1.2</wp:wxr_version>
-	<wp:base_site_url>http://localhost:8000</wp:base_site_url>
-	<wp:base_blog_url>http://localhost:8000</wp:base_blog_url>
+	<wp:base_site_url>http://localhost:80</wp:base_site_url>
+	<wp:base_blog_url>http://localhost:80</wp:base_blog_url>
 
 	<generator>https://wordpress.org/?v=6.2</generator>
 
 	<item>
 		<title><![CDATA[Vector Database Introduction]]></title>
-		<link>http://localhost:8000/vector-database-introduction/</link>
+		<link>http://localhost:80/vector-database-introduction/</link>
 		<pubDate>Mon, 06 Mar 2023 12:00:00 +0000</pubDate>
 		<dc:creator><![CDATA[admin]]></dc:creator>
-		<guid isPermaLink="false">http://localhost:8000/?p=1</guid>
+		<guid isPermaLink="false">http://localhost:80/?p=1</guid>
 		<description></description>
 		<content:encoded><![CDATA[
 			<h2>What is a Vector Database?</h2>
@@ -76,10 +76,10 @@
 
 	<item>
 		<title><![CDATA[Semantic Search for WordPress]]></title>
-		<link>http://localhost:8000/semantic-search-for-wordpress/</link>
+		<link>http://localhost:80/semantic-search-for-wordpress/</link>
 		<pubDate>Mon, 06 Mar 2023 13:00:00 +0000</pubDate>
 		<dc:creator><![CDATA[admin]]></dc:creator>
-		<guid isPermaLink="false">http://localhost:8000/?p=2</guid>
+		<guid isPermaLink="false">http://localhost:80/?p=2</guid>
 		<description></description>
 		<content:encoded><![CDATA[
 			<h2>Beyond Keyword Search: The Power of Semantic Search</h2>

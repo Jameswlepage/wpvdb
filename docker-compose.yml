@@ -41,7 +41,7 @@ services:
     depends_on:
       - mysql
     ports:
-      - "8080:80"
+      - "9080:80"
     restart: always
     deploy:
       resources:
@@ -74,7 +74,7 @@ services:
     depends_on:
       - mariadb
     ports:
-      - "8081:80"
+      - "9081:80"
     restart: always
     deploy:
       resources:
@@ -105,7 +105,7 @@ services:
     depends_on:
       - mysql
     ports:
-      - "8180:8080"
+      - "9180:8080"
     environment:
       ADMINER_DEFAULT_SERVER: mysql
       ADMINER_DESIGN: pepa-linha
@@ -116,7 +116,7 @@ services:
     depends_on:
       - mariadb
     ports:
-      - "8181:8080"
+      - "9181:8080"
     environment:
       ADMINER_DEFAULT_SERVER: mariadb
       ADMINER_DESIGN: pepa-linha

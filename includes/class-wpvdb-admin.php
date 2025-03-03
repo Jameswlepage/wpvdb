@@ -46,6 +46,16 @@ class Admin {
             'wpvdb-embeddings',
             [__CLASS__, 'render_embeddings_page']
         );
+        
+        // Add new Status page
+        add_submenu_page(
+            'wpvdb-dashboard',
+            __('Status', 'wpvdb'),
+            __('Status', 'wpvdb'),
+            'manage_options',
+            'wpvdb-status',
+            [__CLASS__, 'render_status_page']
+        );
     }
     
     /**
@@ -93,6 +103,53 @@ class Admin {
         $total_pages = ceil($total_embeddings / $per_page);
         
         include WPVDB_PLUGIN_DIR . 'admin/views/embeddings.php';
+    }
+    
+    /**
+     * Render status page with system and database information
+     */
+    public static function render_status_page() {
+        global $wpdb;
+        $table_name = $wpdb->prefix . 'wpvdb_embeddings';
+        
+        // Database information
+        $db_info = [
+            'db_version' => $wpdb->db_version(),
+            'prefix' => $wpdb->prefix,
+            'charset' => $wpdb->charset,
+            'collate' => $wpdb->collate,
+            'table_exists' => $wpdb->get_var("SHOW TABLES LIKE '{$table_name}'") === $table_name,
+        ];
+        
+        // Table structure
+        $table_structure = [];
+        if ($db_info['table_exists']) {
+            $table_structure = $wpdb->get_results("DESCRIBE {$table_name}");
+        }
+        
+        // Database statistics
+        $db_stats = [
+            'total_embeddings' => $wpdb->get_var("SELECT COUNT(*) FROM {$table_name}"),
+            'total_docs' => $wpdb->get_var("SELECT COUNT(DISTINCT doc_id) FROM {$table_name}"),
+            'storage_used' => size_format($wpdb->get_var("SELECT SUM(LENGTH(embedding)) FROM {$table_name}") ?: 0),
+            'avg_embedding_size' => size_format($wpdb->get_var("SELECT AVG(LENGTH(embedding)) FROM {$table_name}") ?: 0),
+            'largest_embedding' => size_format($wpdb->get_var("SELECT MAX(LENGTH(embedding)) FROM {$table_name}") ?: 0),
+            'avg_chunk_content_size' => size_format($wpdb->get_var("SELECT AVG(LENGTH(chunk_content)) FROM {$table_name}") ?: 0),
+        ];
+        
+        // System information
+        $system_info = [
+            'php_version' => phpversion(),
+            'wp_version' => get_bloginfo('version'),
+            'wp_memory_limit' => WP_MEMORY_LIMIT,
+            'max_execution_time' => ini_get('max_execution_time'),
+            'post_max_size' => ini_get('post_max_size'),
+            'max_input_vars' => ini_get('max_input_vars'),
+            'curl_version' => function_exists('curl_version') ? curl_version()['version'] : __('Not available', 'wpvdb'),
+            'openai_api_key_set' => !empty(get_option('wpvdb_settings')['api_key']),
+        ];
+        
+        include WPVDB_PLUGIN_DIR . 'admin/views/status.php';
     }
     
     /**
