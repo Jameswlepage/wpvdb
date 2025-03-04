@@ -1,85 +1,132 @@
 <div class="wrap wpvdb-dashboard">
     <h1><?php esc_html_e('Vector Database Dashboard', 'wpvdb'); ?></h1>
     
-    <div class="wpvdb-stats-cards">
-        <div class="wpvdb-card">
-            <h2><?php esc_html_e('Total Embeddings', 'wpvdb'); ?></h2>
-            <div class="wpvdb-stat"><?php echo esc_html(number_format_i18n($total_embeddings)); ?></div>
-        </div>
-        
-        <div class="wpvdb-card">
-            <h2><?php esc_html_e('Total Documents', 'wpvdb'); ?></h2>
-            <div class="wpvdb-stat"><?php echo esc_html(number_format_i18n($total_docs)); ?></div>
-        </div>
-        
-        <div class="wpvdb-card">
-            <h2><?php esc_html_e('Storage Used', 'wpvdb'); ?></h2>
-            <div class="wpvdb-stat"><?php echo esc_html($storage_used); ?></div>
-        </div>
-    </div>
-    
-    <div class="wpvdb-actions">
-        <h2><?php esc_html_e('Quick Actions', 'wpvdb'); ?></h2>
-        
-        <div class="wpvdb-action-buttons">
-            <a href="<?php echo esc_url(admin_url('admin.php?page=wpvdb-embeddings')); ?>" class="button button-primary">
-                <?php esc_html_e('Manage Embeddings', 'wpvdb'); ?>
-            </a>
+    <div class="postbox-container" style="width: 100%;">
+        <div class="metabox-holder">
+            <!-- Stats Overview -->
+            <div class="postbox">
+                <div class="postbox-header">
+                    <h2 class="hndle"><?php esc_html_e('Database Overview', 'wpvdb'); ?></h2>
+                </div>
+                <div class="inside">
+                    <div class="wpvdb-stats-grid">
+                        <div class="wpvdb-stat-item">
+                            <h3><?php esc_html_e('Total Embeddings', 'wpvdb'); ?></h3>
+                            <div class="wpvdb-stat-value"><?php echo esc_html(number_format_i18n($total_embeddings)); ?></div>
+                        </div>
+                        
+                        <div class="wpvdb-stat-item">
+                            <h3><?php esc_html_e('Total Documents', 'wpvdb'); ?></h3>
+                            <div class="wpvdb-stat-value"><?php echo esc_html(number_format_i18n($total_docs)); ?></div>
+                        </div>
+                        
+                        <div class="wpvdb-stat-item">
+                            <h3><?php esc_html_e('Storage Used', 'wpvdb'); ?></h3>
+                            <div class="wpvdb-stat-value"><?php echo esc_html($storage_used); ?></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
             
-            <a href="<?php echo esc_url(admin_url('admin.php?page=wpvdb-settings')); ?>" class="button">
-                <?php esc_html_e('Configure Settings', 'wpvdb'); ?>
-            </a>
+            <!-- Quick Search Widget -->
+            <div class="postbox">
+                <div class="postbox-header">
+                    <h2 class="hndle"><?php esc_html_e('Semantic Search', 'wpvdb'); ?></h2>
+                </div>
+                <div class="inside">
+                    <p><?php esc_html_e('Search your content using AI-powered semantic search:', 'wpvdb'); ?></p>
+                    <form method="get" action="<?php echo esc_url(admin_url('admin.php')); ?>">
+                        <input type="hidden" name="page" value="wpvdb-embeddings">
+                        <div class="wpvdb-search-form">
+                            <input type="search" 
+                                   name="s" 
+                                   placeholder="<?php esc_attr_e('Enter your search query...', 'wpvdb'); ?>"
+                                   class="regular-text">
+                            <button type="submit" class="button button-primary"><?php esc_html_e('Search', 'wpvdb'); ?></button>
+                        </div>
+                    </form>
+                </div>
+            </div>
             
-            <button id="wpvdb-bulk-embed" class="button">
-                <?php esc_html_e('Bulk Embed Content', 'wpvdb'); ?>
-            </button>
-        </div>
-    </div>
-    
-    <div id="wpvdb-bulk-embed-modal" class="wpvdb-modal" style="display:none;">
-        <div class="wpvdb-modal-content">
-            <span class="wpvdb-modal-close">&times;</span>
-            <h2><?php esc_html_e('Bulk Embed Content', 'wpvdb'); ?></h2>
-            
-            <form id="wpvdb-bulk-embed-form">
-                <div class="wpvdb-form-group">
-                    <label for="wpvdb-post-type"><?php esc_html_e('Post Type', 'wpvdb'); ?></label>
-                    <select id="wpvdb-post-type" name="post_type">
-                        <?php 
-                        $post_types = get_post_types(['public' => true], 'objects');
-                        foreach ($post_types as $pt) {
-                            echo '<option value="' . esc_attr($pt->name) . '">' . esc_html($pt->label) . '</option>';
-                        }
-                        ?>
-                    </select>
+            <!-- Quick Actions Widget -->
+            <div class="postbox">
+                <div class="postbox-header">
+                    <h2 class="hndle"><?php esc_html_e('Quick Actions', 'wpvdb'); ?></h2>
                 </div>
-                
-                <div class="wpvdb-form-group">
-                    <label for="wpvdb-limit"><?php esc_html_e('Limit', 'wpvdb'); ?></label>
-                    <input type="number" id="wpvdb-limit" name="limit" min="1" max="100" value="10">
+                <div class="inside">
+                    <div class="wpvdb-action-buttons">
+                        <a href="<?php echo esc_url(admin_url('admin.php?page=wpvdb-embeddings')); ?>" class="button">
+                            <span class="dashicons dashicons-database-view"></span>
+                            <?php esc_html_e('Manage Embeddings', 'wpvdb'); ?>
+                        </a>
+                        
+                        <a href="<?php echo esc_url(admin_url('admin.php?page=wpvdb-settings')); ?>" class="button">
+                            <span class="dashicons dashicons-admin-settings"></span>
+                            <?php esc_html_e('Configure Settings', 'wpvdb'); ?>
+                        </a>
+                        
+                        <a href="<?php echo esc_url(admin_url('admin.php?page=wpvdb-embeddings#bulk-embed')); ?>" class="button">
+                            <span class="dashicons dashicons-update"></span>
+                            <?php esc_html_e('Bulk Embed Content', 'wpvdb'); ?>
+                        </a>
+                    </div>
                 </div>
-                
-                <div class="wpvdb-form-group">
-                    <label for="wpvdb-model"><?php esc_html_e('Embedding Model', 'wpvdb'); ?></label>
-                    <select id="wpvdb-model" name="model">
-                        <option value="text-embedding-3-small">text-embedding-3-small</option>
-                        <option value="text-embedding-3-large">text-embedding-3-large</option>
-                        <option value="text-embedding-ada-002">text-embedding-ada-002 (Legacy)</option>
-                    </select>
-                </div>
-                
-                <div class="wpvdb-form-actions">
-                    <button type="submit" class="button button-primary"><?php esc_html_e('Start Processing', 'wpvdb'); ?></button>
-                    <button type="button" class="button wpvdb-modal-cancel"><?php esc_html_e('Cancel', 'wpvdb'); ?></button>
-                </div>
-            </form>
-            
-            <div id="wpvdb-bulk-embed-results" style="display:none;">
-                <div class="wpvdb-progress">
-                    <div class="wpvdb-progress-bar" style="width: 0%;"></div>
-                </div>
-                <p class="wpvdb-status-message"></p>
             </div>
         </div>
     </div>
-</div> 
+</div>
+
+<style>
+/* WordPress Core-like styling */
+.wpvdb-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 20px;
+    margin: 10px 0;
+}
+
+.wpvdb-stat-item {
+    text-align: center;
+    padding: 15px;
+    background: #f9f9f9;
+    border: 1px solid #ddd;
+}
+
+.wpvdb-stat-value {
+    font-size: 24px;
+    font-weight: 600;
+    color: #2271b1;
+    margin: 10px 0;
+}
+
+.wpvdb-stat-item h3 {
+    margin: 0;
+    font-size: 14px;
+    color: #50575e;
+}
+
+.wpvdb-search-form {
+    display: flex;
+    margin: 10px 0;
+}
+
+.wpvdb-search-form input[type="search"] {
+    flex: 1;
+    margin-right: 10px;
+}
+
+.wpvdb-action-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.wpvdb-action-buttons .button {
+    display: flex;
+    align-items: center;
+}
+
+.wpvdb-action-buttons .button .dashicons {
+    margin-right: 5px;
+}
+</style> 

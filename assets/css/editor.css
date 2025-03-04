@@ -1,0 +1,105 @@
+/* WPVDB Embedding Status in Gutenberg Editor */
+.wpvdb-embedding-status {
+    display: flex;
+    flex-direction: column;
+    padding: 2px 0;
+    width: 100%;
+}
+
+.wpvdb-status-main {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 4px;
+    width: 100%;
+}
+
+.wpvdb-status-label {
+    font-weight: 400;
+}
+
+.wpvdb-status-value {
+    display: flex;
+    align-items: center;
+}
+
+.wpvdb-status-with-count {
+    display: flex;
+    align-items: center;
+    margin-right: 8px;
+}
+
+.wpvdb-status-indicator {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 4px;
+}
+
+.wpvdb-status-indicator.embedded {
+    background-color: #46b450;
+}
+
+.wpvdb-status-indicator.not-embedded {
+    background-color: #dc3232;
+}
+
+.wpvdb-chunks-count {
+    font-size: 12px;
+    color: #555;
+}
+
+.wpvdb-regenerate-button {
+    padding: 0 !important;
+    min-width: auto !important;
+    height: 24px !important;
+    width: 24px !important;
+    border: none !important;
+    background: transparent !important;
+    color: #555 !important;
+}
+
+.wpvdb-regenerate-button:hover {
+    color: #0073aa !important;
+}
+
+.wpvdb-regenerate-button svg {
+    width: 16px !important;
+    height: 16px !important;
+    opacity: 0.7;
+}
+
+.wpvdb-regenerate-button:hover svg {
+    opacity: 1;
+}
+
+.wpvdb-embedding-model,
+.wpvdb-embedding-date {
+    margin-bottom: 2px;
+    color: #757575;
+    font-size: 11px;
+    line-height: 1.4;
+}
+
+.wpvdb-embedding-actions {
+    margin-top: 8px;
+    display: flex;
+    align-items: center;
+}
+
+.wpvdb-embedding-actions .components-spinner {
+    margin-top: 0;
+    margin-right: 8px;
+}
+
+.wpvdb-status-message {
+    font-size: 12px;
+    color: #757575;
+}
+
+/* Adjust the panel spacing */
+.wpvdb-status-panel .components-panel__row {
+    margin-top: 0;
+    margin-bottom: 0;
+} 

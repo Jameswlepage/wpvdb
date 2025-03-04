@@ -22,6 +22,7 @@ class Admin {
         add_action('wp_ajax_wpvdb_automattic_connect', [__CLASS__, 'ajax_automattic_connect']);
         add_action('wp_ajax_wpvdb_reembed_post', [__CLASS__, 'ajax_reembed_post']);
         add_action('wp_ajax_wpvdb_test_embedding', [__CLASS__, 'ajax_test_embedding']);
+        add_action('wp_ajax_wpvdb_get_embedding_content', [__CLASS__, 'ajax_get_embedding_content']);
         
         // Register settings
         add_action('admin_init', [__CLASS__, 'register_settings']);
@@ -37,6 +38,12 @@ class Admin {
         
         // Add column to post list tables
         add_action('admin_init', [__CLASS__, 'register_post_columns']);
+        
+        // Register post meta for block editor
+        add_action('init', [__CLASS__, 'register_post_meta']);
+        
+        // Enqueue block editor assets
+        add_action('enqueue_block_editor_assets', [__CLASS__, 'enqueue_editor_assets']);
     }
     
     /**
@@ -681,69 +688,58 @@ class Admin {
     }
     
     /**
-     * Enqueue admin assets
+     * Enqueue assets for the admin screens
      */
     public static function enqueue_admin_assets($hook) {
-        // Add our own WooCommerce-like styles
+        $admin_pages = ['toplevel_page_wpvdb-dashboard', 'wpvdb_page_wpvdb-embeddings', 'wpvdb_page_wpvdb-settings'];
+        
+        // Only load our assets on our admin pages
+        if (!in_array($hook, $admin_pages)) {
+            return;
+        }
+        
+        // Core WordPress admin styles are already loaded
+        
+        // Enqueue custom admin styles - make these minimal and use core styles where possible
         wp_enqueue_style(
-            'wpvdb-admin-styles',
+            'wpvdb-admin',
             WPVDB_PLUGIN_URL . 'assets/css/admin.css',
             [],
             WPVDB_VERSION
         );
         
-        // Add inline styles for the embedding column icon
-        $custom_css = "
-            .column-wpvdb_embedded {
-                width: 60px;
-                text-align: center;
-            }
-            .column-wpvdb_embedded .dashicons {
-                margin-top: 3px;
-            }
-            .wpvdb-status-container {
-                display: flex;
-                justify-content: center;
-                align-items: center;
-                height: 100%;
-            }
-            .wpvdb-status-dot {
-                display: inline-block;
-                width: 12px;
-                height: 12px;
-                border-radius: 50%;
-            }
-            .wpvdb-status-dot.embedded {
-                background-color: #46b450;
-            }
-            .wpvdb-status-dot.not-embedded {
-                background-color: #dc3232;
-            }
-        ";
-        wp_add_inline_style('wpvdb-admin-styles', $custom_css);
+        // Main admin script
+        wp_enqueue_script(
+            'wpvdb-admin',
+            WPVDB_PLUGIN_URL . 'assets/js/admin.js',
+            ['jquery'],
+            WPVDB_VERSION,
+            true
+        );
         
-        // Only load JS on plugin admin pages
-        if ($hook && str_contains($hook, 'wpvdb')) {
+        // Additional scripts for specific pages
+        if ($hook === 'wpvdb_page_wpvdb-embeddings') {
+            // Embeddings page specific script
             wp_enqueue_script(
-                'wpvdb-admin-scripts',
-                WPVDB_PLUGIN_URL . 'assets/js/admin.js',
-                ['jquery'],
+                'wpvdb-embeddings',
+                WPVDB_PLUGIN_URL . 'assets/js/embeddings.js',
+                ['jquery', 'wpvdb-admin'],
                 WPVDB_VERSION,
                 true
             );
-            
-            // Pass AJAX URL and nonce to script
-            wp_localize_script('wpvdb-admin-scripts', 'wpvdb', [
-                'ajax_url' => admin_url('admin-ajax.php'),
-                'nonce' => wp_create_nonce('wpvdb-admin'),
-                'settings_url' => admin_url('admin.php?page=wpvdb-settings'),
-                'i18n' => [
-                    'confirm_delete' => __('Are you sure you want to delete this embedding?', 'wpvdb'),
-                    'processing' => __('Processing...', 'wpvdb'),
-                    'confirm_provider_change' => __('WARNING: Changing the embedding provider or model requires re-indexing ALL content. This will delete all existing embeddings. Are you sure you want to continue?', 'wpvdb'),
-                ]
-            ]);
         }
+        
+        // Common data for admin scripts
+        wp_localize_script('wpvdb-admin', 'wpvdb', [
+            'ajaxUrl' => admin_url('admin-ajax.php'),
+            'nonce' => wp_create_nonce('wpvdb_ajax_nonce'),
+            'strings' => [
+                'confirmDelete' => __('Are you sure you want to delete this embedding?', 'wpvdb'),
+                'processing' => __('Processing...', 'wpvdb'),
+                'complete' => __('Complete!', 'wpvdb'),
+                'error' => __('Error:', 'wpvdb'),
+            ]
+        ]);
     }
     
     /**
@@ -1137,18 +1133,25 @@ class Admin {
         ?>
         <div class="wpvdb-meta-box">
             <?php if ($is_embedded) : ?>
-                <div class="wpvdb-status-indicator embedded">
-                    <span class="dashicons dashicons-yes-alt"></span>
-                    <?php esc_html_e('This post has embeddings', 'wpvdb'); ?>
+                <div class="wpvdb-status-row">
+                    <span class="wpvdb-status-label"><?php esc_html_e('Embedding', 'wpvdb'); ?></span>
+                    <span class="wpvdb-status-value">
+                        <span class="wpvdb-status-dot embedded"></span>
+                        <span class="wpvdb-status-text"><?php echo sprintf(esc_html__('Embedded (%s chunks)', 'wpvdb'), $chunks_count); ?></span>
+                    </span>
                 </div>
                 
-                <div class="wpvdb-embedding-info">
-                    <p><strong><?php esc_html_e('Chunks:', 'wpvdb'); ?></strong> <?php echo esc_html($chunks_count); ?></p>
-                    <p><strong><?php esc_html_e('Date:', 'wpvdb'); ?></strong> <?php echo esc_html(date_i18n(get_option('date_format') . ' ' . get_option('time_format'), strtotime($embedded_date))); ?></p>
-                    <?php if ($embedded_model) : ?>
-                        <p><strong><?php esc_html_e('Model:', 'wpvdb'); ?></strong> <?php echo esc_html($embedded_model); ?></p>
-                    <?php endif; ?>
+                <?php if ($embedded_model) : ?>
+                <div class="wpvdb-embedding-model">
+                    <small><?php echo sprintf(esc_html__('Model: %s', 'wpvdb'), $embedded_model); ?></small>
                 </div>
+                <?php endif; ?>
+                
+                <?php if ($embedded_date) : ?>
+                <div class="wpvdb-embedding-date">
+                    <small><?php echo sprintf(esc_html__('Generated: %s', 'wpvdb'), date_i18n(get_option('date_format'), strtotime($embedded_date))); ?></small>
+                </div>
+                <?php endif; ?>
                 
                 <button id="wpvdb-reembed-post" class="button" data-post-id="<?php echo esc_attr($post->ID); ?>">
                     <?php esc_html_e('Re-generate Embeddings', 'wpvdb'); ?>
@@ -1156,9 +1159,12 @@ class Admin {
                 
                 <div id="wpvdb-reembed-status" style="display:none; margin-top: 10px;"></div>
             <?php else : ?>
-                <div class="wpvdb-status-indicator not-embedded">
-                    <span class="dashicons dashicons-no-alt"></span>
-                    <?php esc_html_e('This post has no embeddings', 'wpvdb'); ?>
+                <div class="wpvdb-status-row">
+                    <span class="wpvdb-status-label"><?php esc_html_e('Embedding', 'wpvdb'); ?></span>
+                    <span class="wpvdb-status-value">
+                        <span class="wpvdb-status-dot not-embedded"></span>
+                        <span class="wpvdb-status-text"><?php esc_html_e('Not embedded', 'wpvdb'); ?></span>
+                    </span>
                 </div>
                 
                 <button id="wpvdb-reembed-post" class="button" data-post-id="<?php echo esc_attr($post->ID); ?>">
@@ -1309,13 +1315,14 @@ class Admin {
         }
         
         if ($is_embedded) {
-            echo '<div class="wpvdb-status-container"><span class="wpvdb-status-dot embedded" title="' . 
-                esc_attr(sprintf(__('Embedded (%d chunks)', 'wpvdb'), $actual_count)) . 
-                '"></span></div>';
+            echo '<div class="wpvdb-status-container" title="' . esc_attr(sprintf(__('Embedded (%d chunks)', 'wpvdb'), $actual_count)) . '">' .
+                '<span class="wpvdb-status-dot embedded"></span>' .
+                '<span class="wpvdb-status-count">(' . esc_html($actual_count) . ')</span>' .
+                '</div>';
         } else {
-            echo '<div class="wpvdb-status-container"><span class="wpvdb-status-dot not-embedded" title="' . 
-                esc_attr(__('Not embedded', 'wpvdb')) . 
-                '"></span></div>';
+            echo '<div class="wpvdb-status-container" title="' . esc_attr(__('Not embedded', 'wpvdb')) . '">' .
+                '<span class="wpvdb-status-dot not-embedded"></span>' .
+                '</div>';
         }
     }
     
@@ -1464,6 +1471,49 @@ class Admin {
     }
     
     /**
+     * AJAX handler to get the full content of an embedding by ID
+     */
+    public static function ajax_get_embedding_content() {
+        // Check nonce
+        if (!check_ajax_referer('wpvdb_ajax_nonce', 'nonce', false)) {
+            wp_send_json_error(['message' => __('Security check failed', 'wpvdb')]);
+        }
+        
+        // Check if user has permission
+        if (!current_user_can('edit_posts')) {
+            wp_send_json_error(['message' => __('You do not have permission to perform this action', 'wpvdb')]);
+        }
+        
+        // Get the embedding ID
+        $id = isset($_POST['id']) ? intval($_POST['id']) : 0;
+        if (!$id) {
+            wp_send_json_error(['message' => __('Invalid embedding ID', 'wpvdb')]);
+        }
+        
+        // Get the embedding from the database
+        global $wpdb;
+        $table_name = $wpdb->prefix . 'wpvdb_embeddings';
+        
+        $embedding = $wpdb->get_row(
+            $wpdb->prepare("SELECT * FROM $table_name WHERE id = %d", $id)
+        );
+        
+        if (!$embedding) {
+            wp_send_json_error(['message' => __('Embedding not found', 'wpvdb')]);
+        }
+        
+        // Return the content
+        $content = isset($embedding->chunk_content) ? $embedding->chunk_content : $embedding->preview;
+        
+        wp_send_json_success([
+            'id' => $id,
+            'content' => $content,
+            'doc_id' => $embedding->doc_id,
+            'chunk_id' => $embedding->chunk_id
+        ]);
+    }
+    
+    /**
      * Handle admin actions for our tools.
      */
     public static function handle_admin_actions() {
@@ -1573,5 +1623,77 @@ class Admin {
             _e('All embeddings have been deleted.', 'wpvdb');
             echo '</p></div>';
         }
+    }
+    
+    /**
+     * Register post meta for the block editor
+     */
+    public static function register_post_meta() {
+        // Define the post types that support embeddings
+        $post_types = Settings::get_auto_embed_post_types();
+        if (empty($post_types)) {
+            $post_types = ['post', 'page'];
+        }
+        
+        // Register meta fields for each supported post type
+        foreach ($post_types as $post_type) {
+            register_post_meta($post_type, '_wpvdb_embedded', [
+                'show_in_rest' => true,
+                'single' => true,
+                'type' => 'boolean',
+                'auth_callback' => function() {
+                    return current_user_can('edit_posts');
+                }
+            ]);
+            
+            register_post_meta($post_type, '_wpvdb_chunks_count', [
+                'show_in_rest' => true,
+                'single' => true,
+                'type' => 'integer',
+                'auth_callback' => function() {
+                    return current_user_can('edit_posts');
+                }
+            ]);
+            
+            register_post_meta($post_type, '_wpvdb_embedded_date', [
+                'show_in_rest' => true,
+                'single' => true,
+                'type' => 'string',
+                'auth_callback' => function() {
+                    return current_user_can('edit_posts');
+                }
+            ]);
+            
+            register_post_meta($post_type, '_wpvdb_embedded_model', [
+                'show_in_rest' => true,
+                'single' => true,
+                'type' => 'string',
+                'auth_callback' => function() {
+                    return current_user_can('edit_posts');
+                }
+            ]);
+        }
+    }
+    
+    /**
+     * Enqueue assets for the block editor
+     */
+    public static function enqueue_editor_assets() {
+        // Enqueue the editor plugin script
+        wp_enqueue_script(
+            'wpvdb-editor-row',
+            WPVDB_PLUGIN_URL . 'assets/js/editor.js',
+            ['wp-plugins', 'wp-edit-post', 'wp-element', 'wp-components', 'wp-data', 'wp-i18n'],
+            WPVDB_VERSION,
+            true
+        );
+        
+        // Enqueue styles for the editor plugin
+        wp_enqueue_style(
+            'wpvdb-editor-styles',
+            WPVDB_PLUGIN_URL . 'assets/css/editor.css',
+            [],
+            WPVDB_VERSION
+        );
     }
 } 

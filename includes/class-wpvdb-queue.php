@@ -113,6 +113,16 @@ class WPVDB_Queue {
      * @return $this
      */
     public function dispatch() {
+        // For development environments, force run the scheduler immediately
+        if (function_exists('as_has_scheduled_action') && 
+            as_has_scheduled_action(self::PROCESS_SINGLE_ACTION, null, 'wpvdb')) {
+            
+            // If we're in the admin and actions are pending, try to run immediately
+            if (is_admin() && class_exists('\ActionScheduler_QueueRunner')) {
+                \ActionScheduler_QueueRunner::instance()->run();
+            }
+        }
+        
         return $this;
     }
     
@@ -189,6 +199,22 @@ class WPVDB_Queue {
         
         // Get API base
         $api_base = Settings::get_api_base();
+        
+        // First, delete any existing embeddings for this post
+        global $wpdb;
+        $table_name = $wpdb->prefix . 'wpvdb_embeddings';
+        $existing_count = $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM $table_name WHERE doc_id = %d", $post->ID));
+        
+        if ($existing_count > 0) {
+            error_log("[WPVDB] Deleting {$existing_count} existing embeddings for post {$post->ID} before creating new ones.");
+            $wpdb->delete($table_name, ['doc_id' => $post->ID], ['%d']);
+            
+            // Also delete the post meta about embeddings
+            delete_post_meta($post->ID, '_wpvdb_embedded');
+            delete_post_meta($post->ID, '_wpvdb_chunks_count');
+            delete_post_meta($post->ID, '_wpvdb_embedded_date');
+            delete_post_meta($post->ID, '_wpvdb_embedded_model');
+        }
         
         // Combine content (title + content)
         $text = $post->post_title . "\n\n" . wp_strip_all_tags($post->post_content);

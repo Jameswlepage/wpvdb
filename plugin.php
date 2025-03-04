@@ -18,7 +18,7 @@
 defined('ABSPATH') || exit; // No direct access.
 
 // Define plugin version and constants.
-define('WPVDB_VERSION', '1.0.0');
+define('WPVDB_VERSION', '1.0.1');
 define('WPVDB_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('WPVDB_PLUGIN_URL', plugin_dir_url(__FILE__));
 
@@ -112,9 +112,28 @@ function wpvdb_init_plugin() {
     // Register Action Scheduler handler (if available)
     if (wpvdb_has_action_scheduler()) {
         add_action('wpvdb_process_embedding', ['\\WPVDB\\WPVDB_Queue', 'process_item']);
+        
+        // Add more frequent runner for Action Scheduler
+        add_action('init', 'wpvdb_maybe_run_action_scheduler');
     }
 }
 add_action('plugins_loaded', 'wpvdb_init_plugin');
+
+/**
+ * Run Action Scheduler more frequently in the admin
+ * This helps ensure queued jobs run even without proper WP-Cron in development
+ */
+function wpvdb_maybe_run_action_scheduler() {
+    if (is_admin() && function_exists('as_has_scheduled_action') && !wp_doing_ajax()) {
+        // Check if we have any pending wpvdb actions
+        if (as_has_scheduled_action('wpvdb_process_embedding', null, 'wpvdb')) {
+            // Make sure scheduler runs
+            if (function_exists('as_schedule_cron_action')) {
+                as_schedule_cron_action(time(), '* * * * *', 'action_scheduler_run_queue', [], 'action-scheduler');
+            }
+        }
+    }
+}
 
 /**
  * Display admin notice when Action Scheduler is missing

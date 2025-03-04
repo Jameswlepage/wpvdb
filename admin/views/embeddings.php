@@ -1,24 +1,228 @@
 <div class="wrap wpvdb-embeddings">
     <h1><?php esc_html_e('Vector Database Embeddings', 'wpvdb'); ?></h1>
     
-    <div class="wpvdb-toolbar">
-        <div class="wpvdb-search">
-            <form method="get">
+    <?php 
+    // Display debug information if needed
+    $show_debug = isset($_GET['debug']);
+    
+    // Also check for debug constant if defined
+    if (defined('WPVDB_DEBUG')) {
+        $show_debug = $show_debug || (constant('WPVDB_DEBUG') === true);
+    }
+    
+    if ($show_debug) {
+        // Get and display settings information
+        $api_key = \WPVDB\Settings::get_api_key();
+        $active_provider = get_option('wpvdb_settings', [])['active_provider'] ?? 'openai';
+        $model = \WPVDB\Settings::get_default_model();
+        $api_base = \WPVDB\Settings::get_api_base();
+        $db_type = \WPVDB\Database::get_db_type();
+        $has_vector_support = \WPVDB\Database::has_native_vector_support() ? 'Yes' : 'No';
+        
+        echo '<div class="notice notice-info is-dismissible">';
+        echo '<h3>' . esc_html__('Debug Information', 'wpvdb') . '</h3>';
+        echo '<ul>';
+        echo '<li><strong>Active Provider:</strong> ' . esc_html($active_provider) . '</li>';
+        echo '<li><strong>API Key Set:</strong> ' . (empty($api_key) ? 'No' : 'Yes') . '</li>';
+        echo '<li><strong>Default Model:</strong> ' . esc_html($model ?: 'Not set') . '</li>';
+        echo '<li><strong>API Base URL:</strong> ' . esc_html($api_base ?: 'Not set') . '</li>';
+        echo '<li><strong>Database Type:</strong> ' . esc_html($db_type ?: 'Unknown') . '</li>';
+        echo '<li><strong>Native Vector Support:</strong> ' . esc_html($has_vector_support) . '</li>';
+        echo '</ul>';
+        echo '</div>';
+    }
+    ?>
+    
+    <div class="tablenav top">
+        <div class="alignleft actions">
+            <form method="get" class="search-form">
                 <input type="hidden" name="page" value="wpvdb-embeddings">
+                <label class="screen-reader-text" for="wpvdb-semantic-search"><?php esc_html_e('Search embeddings', 'wpvdb'); ?></label>
                 <input type="search" 
+                       id="wpvdb-semantic-search"
                        name="s" 
                        value="<?php echo isset($_GET['s']) ? esc_attr($_GET['s']) : ''; ?>" 
-                       placeholder="<?php esc_attr_e('Search embeddings...', 'wpvdb'); ?>">
-                <button type="submit" class="button"><?php esc_html_e('Search', 'wpvdb'); ?></button>
+                       placeholder="<?php esc_attr_e('Search embeddings...', 'wpvdb'); ?>"
+                       class="regular-text">
+                <input type="submit" class="button" value="<?php esc_attr_e('Semantic Search', 'wpvdb'); ?>">
             </form>
         </div>
         
-        <div class="wpvdb-actions">
-            <button id="wpvdb-bulk-embed" class="button button-primary">
+        <div class="alignright">
+            <button id="wpvdb-bulk-embed-button" class="button button-primary">
                 <?php esc_html_e('Bulk Generate Embeddings', 'wpvdb'); ?>
             </button>
         </div>
+        <br class="clear">
     </div>
+    
+    <?php 
+    // Check if we have a search query
+    $search_query = isset($_GET['s']) ? sanitize_text_field($_GET['s']) : '';
+    
+    // If we have a search query, use the semantic search
+    $search_results = [];
+    if (!empty($search_query)) {
+        global $wpdb;
+        $table_name = $wpdb->prefix . 'wpvdb_embeddings';
+        
+        // Get the embedding for the search query
+        $api_key = \WPVDB\Settings::get_api_key();
+        $model = \WPVDB\Settings::get_default_model();
+        $api_base = \WPVDB\Settings::get_api_base();
+        
+        error_log('[WPVDB DEBUG] Performing semantic search for query: ' . $search_query);
+        error_log('[WPVDB DEBUG] API Key exists: ' . (!empty($api_key) ? 'Yes' : 'No'));
+        error_log('[WPVDB DEBUG] Model: ' . $model);
+        error_log('[WPVDB DEBUG] API Base: ' . $api_base);
+        
+        if ($api_key && $model) {
+            try {
+                $embedding_result = \WPVDB\Core::get_embedding($search_query, $model, $api_base, $api_key);
+                
+                if (is_wp_error($embedding_result)) {
+                    error_log('[WPVDB ERROR] Error getting embedding: ' . $embedding_result->get_error_message());
+                } else {
+                    error_log('[WPVDB DEBUG] Successfully generated embedding with dimensions: ' . count($embedding_result));
+                    
+                    $embedding = $embedding_result;
+                    $has_vector = \WPVDB\Database::has_native_vector_support();
+                    error_log('[WPVDB DEBUG] Database has native vector support: ' . ($has_vector ? 'Yes' : 'No'));
+                    
+                    if ($has_vector) {
+                        // Convert the embedding array to JSON
+                        $embedding_json = json_encode($embedding);
+                        
+                        // Use Database class to get the appropriate vector function
+                        $vector_function = \WPVDB\Database::get_vector_from_string_function($embedding_json);
+                        error_log('[WPVDB DEBUG] Using vector function: ' . $vector_function);
+                        
+                        // Use Database class to get the appropriate distance function with both vectors
+                        $db_type = \WPVDB\Database::get_db_type();
+                        if ($db_type === 'mariadb') {
+                            $distance_function = "VEC_DISTANCE_COSINE(e.embedding, $vector_function)";
+                        } else {
+                            $distance_function = "DISTANCE(e.embedding, $vector_function, 'COSINE')";
+                        }
+                        error_log('[WPVDB DEBUG] Using distance function: ' . $distance_function);
+                        
+                        // Create the SQL query with the vector function correctly included
+                        $sql = $wpdb->prepare(
+                            "SELECT e.*, 
+                            $distance_function as distance
+                            FROM $table_name e
+                            ORDER BY distance
+                            LIMIT %d",
+                            20 // Show top 20 matches
+                        );
+                        
+                        error_log('[WPVDB DEBUG] Executing SQL query: ' . $sql);
+                        
+                        $search_results = $wpdb->get_results($sql);
+                        
+                        if ($wpdb->last_error) {
+                            error_log('[WPVDB ERROR] SQL error: ' . $wpdb->last_error);
+                            
+                            // Try executing a simpler query to test database connection
+                            $test_query = "SELECT COUNT(*) FROM $table_name";
+                            $test_result = $wpdb->get_var($test_query);
+                            
+                            if ($wpdb->last_error) {
+                                error_log('[WPVDB ERROR] Even simple query failed: ' . $wpdb->last_error);
+                            } else {
+                                error_log('[WPVDB DEBUG] Simple query succeeded, embedding count: ' . $test_result);
+                                
+                                // Try a direct query without the vector function to see if that's the issue
+                                $basic_query = "SELECT e.* FROM $table_name e LIMIT 20";
+                                $basic_results = $wpdb->get_results($basic_query);
+                                
+                                if ($wpdb->last_error) {
+                                    error_log('[WPVDB ERROR] Basic query failed: ' . $wpdb->last_error);
+                                } else {
+                                    error_log('[WPVDB DEBUG] Basic query succeeded, returned ' . count($basic_results) . ' results');
+                                    error_log('[WPVDB DEBUG] Issue is likely with the vector function: ' . $distance_function);
+                                    
+                                    // Fall back to PHP-based distance calculation
+                                    error_log('[WPVDB DEBUG] Falling back to PHP-based distance calculation');
+                                    $all_rows = $wpdb->get_results("SELECT * FROM $table_name", ARRAY_A);
+                                    $distances = [];
+                                    
+                                    foreach ($all_rows as $r) {
+                                        $stored_emb = json_decode($r['embedding'], true);
+                                        if (!is_array($stored_emb)) {
+                                            continue;
+                                        }
+                                        $similarity_score = \WPVDB\REST::cosine_distance($embedding, $stored_emb);
+                                        $r['distance'] = $similarity_score;
+                                        $distances[] = $r;
+                                    }
+                                    
+                                    usort($distances, function($a, $b) {
+                                        return $a['distance'] <=> $b['distance'];
+                                    });
+                                    
+                                    $search_results = array_slice($distances, 0, 20);
+                                    $search_results = json_decode(json_encode($search_results)); // Convert to objects
+                                    
+                                    error_log('[WPVDB DEBUG] PHP fallback found ' . count($search_results) . ' results');
+                                }
+                            }
+                        } else {
+                            error_log('[WPVDB DEBUG] Found ' . count($search_results) . ' results');
+                            if (count($search_results) > 0) {
+                                error_log('[WPVDB DEBUG] First result distance: ' . 
+                                    (isset($search_results[0]->distance) ? 
+                                    $search_results[0]->distance : 'Not set'));
+                            }
+                        }
+                    } else {
+                        // Fallback: do in PHP
+                        error_log('[WPVDB DEBUG] Using PHP fallback search');
+                        $all_rows = $wpdb->get_results("SELECT * FROM $table_name", ARRAY_A);
+                        error_log('[WPVDB DEBUG] Found ' . count($all_rows) . ' rows for PHP search');
+                        
+                        $distances = [];
+                        
+                        foreach ($all_rows as $r) {
+                            $stored_emb = json_decode($r['embedding'], true);
+                            if (!is_array($stored_emb)) {
+                                error_log('[WPVDB DEBUG] Invalid embedding in row: ' . $r['id']);
+                                continue;
+                            }
+                            $similarity_score = \WPVDB\REST::cosine_distance($embedding, $stored_emb);
+                            $r['distance'] = $similarity_score;
+                            $distances[] = $r;
+                        }
+                        
+                        usort($distances, function($a, $b) {
+                            return $a['distance'] <=> $b['distance'];
+                        });
+                        
+                        $search_results = array_slice($distances, 0, 20);
+                        $search_results = json_decode(json_encode($search_results)); // Convert to objects
+                        
+                        error_log('[WPVDB DEBUG] PHP fallback found ' . count($search_results) . ' results');
+                        if (count($search_results) > 0) {
+                            error_log('[WPVDB DEBUG] First result similarity score: ' . 
+                                (isset($search_results[0]->distance) ? 
+                                $search_results[0]->distance : 'Not set'));
+                        }
+                    }
+                    
+                    // Use search results instead of regular embeddings
+                    $embeddings = $search_results;
+                }
+            } catch (\Exception $e) {
+                // Handle errors
+                error_log('[WPVDB ERROR] Exception: ' . $e->getMessage());
+                echo '<div class="notice notice-error"><p>' . esc_html__('Error performing semantic search: ', 'wpvdb') . esc_html($e->getMessage()) . '</p></div>';
+            }
+        } else {
+            error_log('[WPVDB ERROR] API key or model not configured');
+            echo '<div class="notice notice-warning"><p>' . esc_html__('API key or model not configured. Please check your settings.', 'wpvdb') . '</p></div>';
+        }
+    }
+    ?>
     
     <?php if (empty($embeddings)) : ?>
         <div class="wpvdb-no-data">
@@ -35,6 +239,9 @@
                     <th class="column-chunk"><?php esc_html_e('Chunk', 'wpvdb'); ?></th>
                     <th class="column-preview"><?php esc_html_e('Preview', 'wpvdb'); ?></th>
                     <th class="column-summary"><?php esc_html_e('Summary', 'wpvdb'); ?></th>
+                    <?php if (!empty($search_query)) : ?>
+                    <th class="column-similarity"><?php esc_html_e('Similarity', 'wpvdb'); ?></th>
+                    <?php endif; ?>
                     <th class="column-actions"><?php esc_html_e('Actions', 'wpvdb'); ?></th>
                 </tr>
             </thead>
@@ -61,14 +268,50 @@
                         <td class="column-chunk"><?php echo esc_html($embedding->chunk_id); ?></td>
                         <td class="column-preview">
                             <div class="wpvdb-preview">
-                                <?php echo esc_html($embedding->preview); ?>...
+                                <?php 
+                                // Create a shorter preview (max 150 chars)
+                                $preview_text = isset($embedding->chunk_content) ? $embedding->chunk_content : $embedding->preview;
+                                $short_preview = wp_trim_words($preview_text, 15, '...');
+                                echo esc_html($short_preview);
+                                ?>
                                 <button class="wpvdb-view-full button-link" 
-                                       data-id="<?php echo esc_attr($embedding->id); ?>">
-                                    <?php esc_html_e('View Full', 'wpvdb'); ?>
+                                       data-id="<?php echo esc_attr($embedding->id); ?>"
+                                       data-content="<?php echo esc_attr($preview_text); ?>">
+                                    <?php esc_html_e('View More', 'wpvdb'); ?>
                                 </button>
                             </div>
                         </td>
                         <td class="column-summary"><?php echo esc_html($embedding->summary); ?></td>
+                        <?php if (!empty($search_query)) : ?>
+                        <td class="column-similarity">
+                            <?php 
+                            // Check if the distance property exists
+                            if (isset($embedding->distance)) {
+                                // Lower is better for cosine distance, so convert to percentage (1 - distance)
+                                $similarity_percentage = (1 - floatval($embedding->distance)) * 100;
+                                // Ensure the percentage is between 0 and 100
+                                $similarity_percentage = max(0, min(100, $similarity_percentage)); 
+                                
+                                echo '<div class="similarity-score">' . 
+                                     '<div class="similarity-bar" style="width: ' . esc_attr($similarity_percentage) . '%;"></div>' .
+                                     '<span>' . number_format($similarity_percentage, 1) . '%</span>' .
+                                     '</div>';
+                                
+                                // Show the raw distance value as well
+                                echo '<div class="distance-value">' . 
+                                     esc_html__('Distance: ', 'wpvdb') . 
+                                     number_format($embedding->distance, 4) .
+                                     '</div>';
+                            } else {
+                                // If no distance property, check what properties are available
+                                $props = array_keys(get_object_vars($embedding));
+                                error_log('[WPVDB DEBUG] Properties available: ' . print_r($props, true));
+                                
+                                echo esc_html__('No similarity data available', 'wpvdb');
+                            }
+                            ?>
+                        </td>
+                        <?php endif; ?>
                         <td class="column-actions">
                             <a href="#" class="wpvdb-delete-embedding" 
                                data-id="<?php echo esc_attr($embedding->id); ?>">
@@ -80,7 +323,15 @@
             </tbody>
         </table>
         
-        <?php if ($total_pages > 1) : ?>
+        <?php if (!empty($search_query)) : ?>
+            <p class="description wpvdb-search-note"><?php 
+                printf(
+                    esc_html__('Showing top %d semantic search results for "%s"', 'wpvdb'), 
+                    count($embeddings), 
+                    esc_html($search_query)
+                ); 
+            ?></p>
+        <?php elseif ($total_pages > 1) : ?>
             <div class="wpvdb-pagination tablenav">
                 <div class="tablenav-pages">
                     <?php
@@ -102,7 +353,10 @@
     <div id="wpvdb-full-content-modal" class="wpvdb-modal" style="display:none;">
         <div class="wpvdb-modal-content">
             <span class="wpvdb-modal-close">&times;</span>
-            <h2><?php esc_html_e('Full Content', 'wpvdb'); ?></h2>
+            <h2><?php esc_html_e('Embedding Content', 'wpvdb'); ?> <span class="embedding-id"></span></h2>
+            <div class="wpvdb-modal-info">
+                <p class="description"><?php esc_html_e('This is the full content of the embedding chunk that was used to generate the vector representation.', 'wpvdb'); ?></p>
+            </div>
             <div class="wpvdb-full-content"></div>
         </div>
     </div>
@@ -172,30 +426,38 @@
 </div>
 
 <style>
-/* WooCommerce-like styling */
-.wpvdb-toolbar {
+/* WordPress Core-like styling */
+.wpvdb-embeddings {
+    position: relative;
+    max-width: 100%;
+}
+
+/* Similarity score visualization */
+.similarity-score {
+    position: relative;
     display: flex;
-    justify-content: space-between;
-    margin-bottom: 20px;
-    padding: 12px;
-    background: #fff;
-    border: 1px solid #ccd0d4;
-    box-shadow: 0 1px 1px rgba(0,0,0,.04);
+    align-items: center;
+    background: #f0f0f0;
+    height: 24px;
+    border-radius: 3px;
+    overflow: hidden;
 }
 
-.wpvdb-search input[type="search"] {
-    margin-right: 5px;
-    min-width: 250px;
+.similarity-bar {
+    position: absolute;
+    left: 0;
+    top: 0;
+    height: 100%;
+    background: #2271b1;
+    z-index: 1;
 }
 
-.wpvdb-no-data {
-    margin: 40px 0;
-    text-align: center;
-}
-
-.wpvdb-preview {
-    max-width: 300px;
-    word-break: break-word;
+.similarity-score span {
+    position: relative;
+    z-index: 2;
+    padding: 0 8px;
+    font-weight: 500;
+    color: #000;
 }
 
 /* Column widths */
@@ -211,8 +473,29 @@
 .column-actions {
     width: 100px;
 }
+.column-similarity {
+    width: 130px;
+}
 
-/* Modal styling */
+.wpvdb-preview {
+    max-width: 300px;
+    word-break: break-word;
+    line-height: 1.5;
+}
+
+.wpvdb-preview .button-link {
+    display: inline-block;
+    margin-left: 5px;
+    color: #2271b1;
+    text-decoration: underline;
+    font-size: 12px;
+}
+
+.wpvdb-preview .button-link:hover {
+    color: #135e96;
+}
+
+/* Modal styling - use more WordPress native styling */
 .wpvdb-modal {
     position: fixed;
     top: 0;
@@ -220,37 +503,41 @@
     right: 0;
     bottom: 0;
     background: rgba(0,0,0,0.7);
-    z-index: 9999;
+    z-index: 100050; /* Above admin bar */
     overflow-y: auto;
     padding: 50px 0;
 }
 
 .wpvdb-modal-content {
     position: relative;
-    max-width: 600px;
+    max-width: 700px;
     margin: 0 auto;
     background: #fff;
-    padding: 30px;
-    border-radius: 3px;
-    box-shadow: 0 5px 20px rgba(0,0,0,0.2);
+    padding: 20px;
+    box-shadow: 0 3px 6px rgba(0,0,0,0.3);
 }
 
 .wpvdb-modal-close {
     position: absolute;
-    top: 10px;
-    right: 15px;
-    font-size: 24px;
+    top: 5px;
+    right: 10px;
+    font-size: 22px;
     cursor: pointer;
+    color: #666;
+}
+
+.wpvdb-modal-close:hover {
+    color: #0073aa;
 }
 
 .wpvdb-form-group {
-    margin-bottom: 20px;
+    margin-bottom: 15px;
 }
 
 .wpvdb-form-group label {
     display: block;
     margin-bottom: 5px;
-    font-weight: 600;
+    font-weight: 400;
 }
 
 .wpvdb-form-group select,
@@ -264,20 +551,18 @@
 }
 
 .wpvdb-form-actions .button {
-    margin-left: 10px;
+    margin-left: 5px;
 }
 
 .wpvdb-progress {
     height: 20px;
     background: #f0f0f1;
     margin: 20px 0;
-    border-radius: 3px;
 }
 
 .wpvdb-progress-bar {
     height: 100%;
     background: #2271b1;
-    border-radius: 3px;
     transition: width 0.3s ease;
 }
 
@@ -285,17 +570,151 @@
     max-height: 400px;
     overflow-y: auto;
     padding: 15px;
-    background: #f0f0f1;
-    border-radius: 3px;
-    margin-top: 20px;
+    background: #f6f7f7;
+    margin-top: 15px;
     white-space: pre-wrap;
+    border: 1px solid #ddd;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
+    font-size: 14px;
+    line-height: 1.6;
 }
 
-/* Description text */
-.description {
-    color: #646970;
-    font-size: 13px;
+/* Search results note */
+.wpvdb-search-note {
+    margin: 10px 0;
     font-style: italic;
-    margin: 5px 0 0;
 }
-</style> 
+
+/* Fix for search form */
+.search-form {
+    display: flex;
+    align-items: center;
+}
+
+.search-form input[type="search"] {
+    margin-right: 6px;
+}
+
+.distance-value {
+    font-size: 11px;
+    color: #666;
+    margin-top: 3px;
+    text-align: right;
+}
+
+.wpvdb-modal-info {
+    margin-bottom: 15px;
+}
+
+.wpvdb-modal-info .description {
+    margin: 0;
+    color: #666;
+}
+
+.embedding-id {
+    font-weight: normal;
+    font-size: 14px;
+    color: #666;
+}
+</style>
+
+<script>
+// Handle the bulk-embed hash fragment to open the modal automatically
+jQuery(document).ready(function($) {
+    // Check if hash is #bulk-embed
+    if (window.location.hash === '#bulk-embed') {
+        $('#wpvdb-bulk-embed-modal').show();
+    }
+    
+    // Make the bulk embed button show the modal
+    $('#wpvdb-bulk-embed-button').on('click', function(e) {
+        e.preventDefault();
+        $('#wpvdb-bulk-embed-modal').show();
+    });
+    
+    // "View More" button functionality
+    $('.wpvdb-view-full').on('click', function(e) {
+        e.preventDefault();
+        
+        var $button = $(this);
+        var contentId = $button.data('id');
+        var content = $button.data('content');
+        
+        // If we have direct content from data attribute, use it
+        if (content) {
+            showContentInModal(content, contentId);
+        } else {
+            // Otherwise, fetch it from the server
+            fetchContentById(contentId);
+        }
+    });
+    
+    // Function to show content in the modal
+    function showContentInModal(content, id) {
+        // Update modal content
+        $('.wpvdb-full-content').html(escapeHtml(content));
+        
+        // Update the embedding ID in the title if provided
+        if (id) {
+            $('.embedding-id').text('#' + id);
+        }
+        
+        // Show modal
+        $('#wpvdb-full-content-modal').show();
+    }
+    
+    // Function to fetch content by ID if needed
+    function fetchContentById(id) {
+        // Show loading state
+        $('.wpvdb-full-content').html('<p>Loading content...</p>');
+        $('#wpvdb-full-content-modal').show();
+        
+        // Make AJAX request to get full content
+        $.ajax({
+            url: wpvdb.ajaxUrl,
+            type: 'POST',
+            data: {
+                action: 'wpvdb_get_embedding_content',
+                id: id,
+                nonce: wpvdb.nonce
+            },
+            success: function(response) {
+                if (response.success) {
+                    showContentInModal(response.data.content, id);
+                } else {
+                    $('.wpvdb-full-content').html('<p class="error">Error loading content: ' + response.data.message + '</p>');
+                }
+            },
+            error: function() {
+                $('.wpvdb-full-content').html('<p class="error">Error loading content. Please try again.</p>');
+            }
+        });
+    }
+    
+    // Helper function to escape HTML
+    function escapeHtml(text) {
+        var div = document.createElement('div');
+        div.innerText = text;
+        return div.innerHTML;
+    }
+    
+    // Close modal when clicking the close button or cancel button
+    $('.wpvdb-modal-close, .wpvdb-modal-cancel').on('click', function() {
+        $('.wpvdb-modal').hide();
+    });
+    
+    // Close modals when clicking outside the modal content
+    $('.wpvdb-modal').on('click', function(e) {
+        if ($(e.target).hasClass('wpvdb-modal')) {
+            $('.wpvdb-modal').hide();
+        }
+    });
+    
+    // Close modals with Escape key
+    $(document).keyup(function(e) {
+        if (e.key === "Escape") {
+            $('.wpvdb-modal').hide();
+        }
+    });
+});
+</script> 

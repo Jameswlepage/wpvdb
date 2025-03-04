@@ -134,28 +134,49 @@
 }
 
 /* Embedding status indicator in post lists */
+.wpvdb-status-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
 .wpvdb-status-dot {
     display: inline-block;
-    width: 12px;
-    height: 12px;
+    width: 8px;
+    height: 8px;
     border-radius: 50%;
-    margin: 0 auto;
+    margin-right: 3px;
 }
 
 .wpvdb-status-dot.embedded {
     background-color: #46b450;
-    box-shadow: 0 0 4px rgba(70, 180, 80, 0.6);
 }
 
 .wpvdb-status-dot.not-embedded {
-    background-color: #ccc;
-    border: 1px solid #999;
+    background-color: #dc3232;
+}
+
+/* Add chunk count display */
+.wpvdb-status-count {
+    font-size: 12px;
+    color: #555;
+    display: none; /* Hide by default on small screens */
 }
 
 /* Make the embedding column centered */
 .column-wpvdb_embedded {
     width: 80px;
     text-align: center;
+}
+
+/* Show chunk count on wider screens */
+@media screen and (min-width: 782px) {
+    .column-wpvdb_embedded {
+        width: 100px;
+    }
+    .wpvdb-status-count {
+        display: inline-block;
+    }
 }
 
 /* WooCommerce-like section navigation */
@@ -195,4 +216,43 @@
 
 .wpvdb-tab-pane.active {
     display: block;
+}
+
+/* Meta box embedding status */
+.wpvdb-meta-box {
+    padding: 8px 0;
+}
+
+.wpvdb-status-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+    width: 100%;
+}
+
+.wpvdb-status-label {
+    font-weight: 600;
+}
+
+.wpvdb-status-value {
+    display: flex;
+    align-items: center;
+}
+
+.wpvdb-status-text {
+    margin-left: 4px;
+}
+
+.wpvdb-embedding-model,
+.wpvdb-embedding-date {
+    margin-left: 16px;
+    margin-bottom: 2px;
+    color: #757575;
+    font-size: 11px;
+    line-height: 1.4;
+}
+
+#wpvdb-reembed-post {
+    margin-top: 12px;
 } 

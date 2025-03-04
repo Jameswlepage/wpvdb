@@ -13,31 +13,39 @@ class REST {
      * Registers custom REST routes under the namespace 'vdb/v1'.
      */
     public static function register_routes() {
-        // e.g. POST /vdb/v1/embed
+        // Only register routes if current user has permission
+        if (!self::default_permission_check()) {
+            return;
+        }
+        
         register_rest_route('vdb/v1', '/embed', [
-            'methods'             => 'POST',
-            'callback'            => [__CLASS__, 'handle_embed'],
+            'methods' => 'POST',
+            'callback' => [__CLASS__, 'handle_embed'],
             'permission_callback' => [__CLASS__, 'default_permission_check'],
         ]);
-
-        // e.g. POST /vdb/v1/vectors
+        
         register_rest_route('vdb/v1', '/vectors', [
-            'methods'             => 'POST',
-            'callback'            => [__CLASS__, 'handle_vectors'],
+            'methods' => 'POST',
+            'callback' => [__CLASS__, 'handle_vectors'],
             'permission_callback' => [__CLASS__, 'default_permission_check'],
         ]);
-
-        // e.g. POST /vdb/v1/query
+        
         register_rest_route('vdb/v1', '/query', [
-            'methods'             => 'POST',
-            'callback'            => [__CLASS__, 'handle_query'],
+            'methods' => 'POST',
+            'callback' => [__CLASS__, 'handle_query'],
             'permission_callback' => [__CLASS__, 'default_permission_check'],
         ]);
-
-        // e.g. GET /vdb/v1/metadata
+        
         register_rest_route('vdb/v1', '/metadata', [
-            'methods'             => 'GET',
-            'callback'            => [__CLASS__, 'handle_metadata'],
+            'methods' => 'GET',
+            'callback' => [__CLASS__, 'handle_metadata'],
+            'permission_callback' => [__CLASS__, 'default_permission_check'],
+        ]);
+        
+        // Add endpoint for the block editor to trigger embedding generation
+        register_rest_route('wp/v2/wpvdb', '/reembed', [
+            'methods' => 'POST',
+            'callback' => [__CLASS__, 'handle_reembed'],
             'permission_callback' => [__CLASS__, 'default_permission_check'],
         ]);
     }
@@ -541,5 +549,85 @@ class REST {
         $similarity = max(-1.0, min(1.0, $similarity));
         
         return 1.0 - $similarity;
+    }
+
+    /**
+     * Handle reembed request from block editor
+     * 
+     * @param WP_REST_Request $request
+     * @return WP_REST_Response
+     */
+    public static function handle_reembed(WP_REST_Request $request) {
+        $post_id = absint($request->get_param('post_id'));
+        
+        if (!$post_id) {
+            return rest_ensure_response([
+                'success' => false,
+                'message' => __('Invalid post ID', 'wpvdb')
+            ]);
+        }
+        
+        // Get the post
+        $post = get_post($post_id);
+        if (!$post) {
+            return rest_ensure_response([
+                'success' => false,
+                'message' => __('Post not found', 'wpvdb')
+            ]);
+        }
+        
+        // Delete any existing embeddings for this post
+        global $wpdb;
+        $table_name = $wpdb->prefix . 'wpvdb_embeddings';
+        $wpdb->delete($table_name, ['doc_id' => $post_id], ['%d']);
+        
+        // Delete post meta
+        delete_post_meta($post_id, '_wpvdb_embedded');
+        delete_post_meta($post_id, '_wpvdb_chunks_count');
+        delete_post_meta($post_id, '_wpvdb_embedded_date');
+        delete_post_meta($post_id, '_wpvdb_embedded_model');
+        
+        // Get settings securely
+        $settings = get_option('wpvdb_settings', []);
+        if (!is_array($settings)) {
+            $settings = [];
+        }
+        
+        // Get active provider/model
+        $provider = !empty($settings['active_provider']) ? $settings['active_provider'] : 'openai';
+        $model = !empty($settings['active_model']) ? $settings['active_model'] : 'text-embedding-3-small';
+        
+        // Queue for processing
+        $queue = new \WPVDB\WPVDB_Queue();
+        $queue->push_to_queue([
+            'post_id' => $post_id,
+            'model' => $model,
+            'provider' => $provider,
+        ]);
+        
+        $queue->save()->dispatch();
+        
+        // Force Action Scheduler to run the task immediately
+        if (function_exists('as_schedule_single_action') && function_exists('as_enqueue_async_action')) {
+            as_enqueue_async_action('wpvdb_run_queue_now', [], 'wpvdb');
+        }
+        
+        // For development environments, process the queue immediately
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            // Get the action ID that was just scheduled 
+            $option_key = 'wpvdb_process_embedding';
+            $queue_id = get_option($option_key);
+            
+            if ($queue_id) {
+                // Run the action directly to bypass the scheduler
+                do_action('wpvdb_process_embedding', $queue_id);
+            }
+        }
+        
+        return rest_ensure_response([
+            'success' => true,
+            'message' => __('Embedding generation started', 'wpvdb'),
+            'post_id' => $post_id
+        ]);
     }
 }
