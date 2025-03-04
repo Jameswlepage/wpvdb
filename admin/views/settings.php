@@ -4,7 +4,7 @@ $provider = get_option('wpvdb_provider', 'openai');
 $openai_api_key = get_option('wpvdb_openai_api_key', '');
 $openai_model = get_option('wpvdb_openai_model', 'text-embedding-3-small');
 $automattic_api_key = get_option('wpvdb_automattic_api_key', '');
-$automattic_model = get_option('wpvdb_automattic_model', 'text-embedding-ada-002');
+$automattic_model = get_option('wpvdb_automattic_model', 'a8cai-embeddings-small-1');
 $auto_embed_post_types = get_option('wpvdb_auto_embed_post_types', []);
 $chunk_size = get_option('wpvdb_chunk_size', 200);
 $chunk_overlap = get_option('wpvdb_chunk_overlap', 20);
@@ -36,7 +36,7 @@ $exclude_custom_fields = get_option('wpvdb_exclude_custom_fields', []);
     </div>
     <?php endif; ?>
 
-    <h1><?php esc_html_e('Vector Database Settings', 'wpvdb'); ?></h1>
+   <!-- <h1><?php esc_html_e('Vector Database Settings', 'wpvdb'); ?></h1> -->
     
     <?php
     // Define available sections
@@ -123,7 +123,7 @@ $exclude_custom_fields = get_option('wpvdb_exclude_custom_fields', []);
                     </td>
                 </tr>
                 
-                <tr id="openai_api_key_field" class="api-key-field">
+                <tr id="openai_api_key_field" class="api-key-field" <?php echo $provider !== 'openai' ? 'style="display: none;"' : ''; ?>>
                     <th scope="row">
                         <label for="wpvdb_openai_api_key"><?php esc_html_e('OpenAI API Key', 'wpvdb'); ?></label>
                     </th>
@@ -140,7 +140,7 @@ $exclude_custom_fields = get_option('wpvdb_exclude_custom_fields', []);
                     </td>
                 </tr>
                 
-                <tr id="openai_model_field" class="model-field">
+                <tr id="openai_model_field" class="model-field" <?php echo $provider !== 'openai' ? 'style="display: none;"' : ''; ?>>
                     <th scope="row">
                         <label for="wpvdb_openai_model"><?php esc_html_e('OpenAI Embedding Model', 'wpvdb'); ?></label>
                     </th>
@@ -157,7 +157,7 @@ $exclude_custom_fields = get_option('wpvdb_exclude_custom_fields', []);
                     </td>
                 </tr>
                 
-                <tr id="automattic_api_key_field" class="api-key-field">
+                <tr id="automattic_api_key_field" class="api-key-field" <?php echo $provider !== 'automattic' ? 'style="display: none;"' : ''; ?>>
                     <th scope="row">
                         <label for="wpvdb_automattic_api_key"><?php esc_html_e('Automattic AI API Key', 'wpvdb'); ?></label>
                     </th>
@@ -174,13 +174,14 @@ $exclude_custom_fields = get_option('wpvdb_exclude_custom_fields', []);
                     </td>
                 </tr>
                 
-                <tr id="automattic_model_field" class="model-field">
+                <tr id="automattic_model_field" class="model-field" <?php echo $provider !== 'automattic' ? 'style="display: none;"' : ''; ?>>
                     <th scope="row">
                         <label for="wpvdb_automattic_model"><?php esc_html_e('Automattic AI Embedding Model', 'wpvdb'); ?></label>
                     </th>
                     <td>
                         <select name="wpvdb_automattic_model" id="wpvdb_automattic_model">
-                            <option value="text-embedding-ada-002" <?php selected($automattic_model, 'text-embedding-ada-002'); ?>>text-embedding-ada-002 (1536 dimensions)</option>
+                            <option value="a8cai-embeddings-small-1" <?php selected($automattic_model, 'a8cai-embeddings-small-1'); ?>>a8cai-embeddings-small-1 (512 dimensions)</option>
+                            <option value="text-embedding-ada-002" <?php selected($automattic_model, 'text-embedding-ada-002'); ?>>text-embedding-ada-002 (1536 dimensions, Legacy)</option>
                         </select>
                         <p class="description">
                             <?php esc_html_e('Select the Automattic AI model to use for generating embeddings.', 'wpvdb'); ?>

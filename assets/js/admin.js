@@ -1,4 +1,28 @@
 jQuery(document).ready(function($) {
+    // Settings page specific functionality - provider fields toggle
+    if (window.location.href.indexOf('page=wpvdb-settings') > -1) {
+        // Handle API fields visibility regardless of which settings section is active
+        function toggleApiFieldsVisibility() {
+            var selectedProvider = $('#wpvdb_provider').val();
+            console.log('Direct handler - toggling fields for provider:', selectedProvider);
+            
+            // Hide all provider-specific fields
+            $('tr.api-key-field, tr.model-field').hide();
+            
+            // Show only the selected provider's fields
+            $('#' + selectedProvider + '_api_key_field').show();
+            $('#' + selectedProvider + '_model_field').show();
+        }
+        
+        // Run on page load
+        toggleApiFieldsVisibility();
+        
+        // Run when provider changes
+        $(document).on('change', '#wpvdb_provider', function() {
+            toggleApiFieldsVisibility();
+        });
+    }
+
     // Toggle post type checkboxes
     $('#wpvdb_auto_embed_toggle_all').on('change', function() {
         $('.wpvdb-post-type-checkbox').prop('checked', $(this).prop('checked'));
@@ -9,64 +33,26 @@ jQuery(document).ready(function($) {
         // Get current section from URL or set default
         var currentSection = new URLSearchParams(window.location.search).get('section') || 'api';
         
-        // Add tab links if they don't exist
-        if ($('.wpvdb-settings-tabs').length === 0) {
-            var tabsHtml = '<div class="wpvdb-settings-tabs" style="margin: 20px 0; padding: 10px 0; font-size: 14px;">';
-            
-            // API Configuration tab
-            tabsHtml += '<a href="?page=wpvdb-settings&section=api" style="' + 
-                (currentSection === 'api' ? 'font-weight: bold; text-decoration: none; color: #000;' : 'text-decoration: none;') + 
-                '" class="' + (currentSection === 'api' ? 'wpvdb-tab-current' : '') + '">API Configuration</a>';
-            
-            // Pipe separator
-            tabsHtml += ' | ';
-            
-            // Content Settings tab
-            tabsHtml += '<a href="?page=wpvdb-settings&section=content" style="' + 
-                (currentSection === 'content' ? 'font-weight: bold; text-decoration: none; color: #000;' : 'text-decoration: none;') + 
-                '" class="' + (currentSection === 'content' ? 'wpvdb-tab-current' : '') + '">Content Settings</a>';
-            
-            // Pipe separator
-            tabsHtml += ' | ';
-            
-            // Content Inclusion tab
-            tabsHtml += '<a href="?page=wpvdb-settings&section=inclusion" style="' + 
-                (currentSection === 'inclusion' ? 'font-weight: bold; text-decoration: none; color: #000;' : 'text-decoration: none;') + 
-                '" class="' + (currentSection === 'inclusion' ? 'wpvdb-tab-current' : '') + '">Content Inclusion</a>';
-            
-            tabsHtml += '</div>';
-            
-            $('.wpvdb-settings h1').after(tabsHtml);
-        }
+        // No longer need to create tabs since they're now server-side
         
-        // Update content visibility based on current section
-        $('.wpvdb-settings-section').hide();
-        $('.wpvdb-settings-section').each(function(index) {
-            if (index === 0 && currentSection === 'api') {
-                $(this).show();
-            } else if (index === 1 && currentSection === 'content') {
-                $(this).show();
-            } else if (index === 2 && currentSection === 'inclusion') {
-                $(this).show();
-            }
-        });
-        
-        // Add click handler for tab links
-        $('.wpvdb-settings-tabs a').on('click', function(e) {
+        // Add click handler for section tabs
+        $('.wpvdb-section-nav a').on('click', function(e) {
             e.preventDefault();
             window.location.href = $(this).attr('href');
         });
-
-        // Provider Change Handling
+        
+        // No longer need to manually update visibility since it's handled server-side
+        
+        // Provider Change Handling - this runs on the settings page
         var currentProvider = $('#wpvdb_current_provider').val();
         var currentModel = $('#wpvdb_current_model').val();
         
         // Show/hide API key fields based on selected provider
         function toggleApiKeyFields() {
-            var provider = $('#wpvdb_provider').val();
-            $('.api-key-field, .model-field').hide();
-            $('#' + provider + '_api_key_field').show();
-            $('#' + provider + '_model_field').show();
+            // This is already handled by our document-level handler
+            // But we'll keep this as a backup
+            console.log('Section-specific toggleApiKeyFields called');
+            toggleApiFieldsVisibility();
         }
         
         // Initialize field visibility

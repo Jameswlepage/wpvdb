@@ -1,6 +1,4 @@
 <div class="wpvdb-automattic-connect">
-    <h1><?php esc_html_e('Connect to Automattic AI', 'wpvdb'); ?></h1>
-    
     <div class="wpvdb-connect-container">
         <div class="wpvdb-connect-card">
             <div class="wpvdb-connect-header">
@@ -14,10 +12,7 @@
             
             <div class="wpvdb-connect-methods">
                 <div class="wpvdb-connect-method wpvdb-connect-one-click">
-                    <h3><?php esc_html_e('One-Click Connection', 'wpvdb'); ?></h3>
-                    <p><?php esc_html_e('Connect with a single click to automatically set up your Automattic AI API key.', 'wpvdb'); ?></p>
-                    
-                    <button id="wpvdb-one-click-connect" class="button button-primary">
+                    <button id="wpvdb-one-click-connect" class="button button-primary button-large">
                         <?php esc_html_e('Connect to Automattic AI', 'wpvdb'); ?>
                     </button>
                     
@@ -27,18 +22,21 @@
                     </div>
                 </div>
                 
-                <div class="wpvdb-connect-divider">
-                    <span><?php esc_html_e('OR', 'wpvdb'); ?></span>
+                <div class="wpvdb-connect-footer">
+                    <p>
+                        <?php esc_html_e('Don\'t have an Automattic AI account?', 'wpvdb'); ?>
+                        <a href="https://automattic.com/ai" target="_blank"><?php esc_html_e('Sign up here', 'wpvdb'); ?></a>
+                    </p>
+                    <p class="wpvdb-manual-link">
+                        <a href="#" id="wpvdb-toggle-manual-input"><?php esc_html_e('Enter API key manually', 'wpvdb'); ?></a>
+                    </p>
                 </div>
                 
-                <div class="wpvdb-connect-method wpvdb-connect-manual">
-                    <h3><?php esc_html_e('Manual API Key', 'wpvdb'); ?></h3>
-                    <p><?php esc_html_e('If you already have an Automattic AI API key, you can enter it directly.', 'wpvdb'); ?></p>
-                    
+                <div class="wpvdb-connect-method wpvdb-connect-manual" style="display: none;">
                     <form id="wpvdb-manual-connect-form" method="post" action="options.php">
                         <?php settings_fields('wpvdb_settings'); ?>
                         <input type="hidden" name="wpvdb_settings[provider]" value="automattic">
-                        <input type="hidden" name="wpvdb_settings[automattic][default_model]" value="automattic-embeddings-001">
+                        <input type="hidden" name="wpvdb_settings[automattic][default_model]" value="a8cai-embeddings-small-1">
                         
                         <div class="wpvdb-form-group">
                             <label for="wpvdb_automattic_api_key"><?php esc_html_e('API Key', 'wpvdb'); ?></label>
@@ -57,19 +55,12 @@
                             <button type="submit" class="button button-primary">
                                 <?php esc_html_e('Connect', 'wpvdb'); ?>
                             </button>
-                            <a href="<?php echo esc_url(admin_url('admin.php?page=wpvdb-settings')); ?>" class="button">
+                            <a href="#" id="wpvdb-cancel-manual-input" class="button">
                                 <?php esc_html_e('Cancel', 'wpvdb'); ?>
                             </a>
                         </div>
                     </form>
                 </div>
-            </div>
-            
-            <div class="wpvdb-connect-footer">
-                <p>
-                    <?php esc_html_e('Don\'t have an Automattic AI account?', 'wpvdb'); ?>
-                    <a href="https://automattic.com/ai" target="_blank"><?php esc_html_e('Sign up here', 'wpvdb'); ?></a>
-                </p>
             </div>
         </div>
     </div>
@@ -77,32 +68,28 @@
 
 <style>
 .wpvdb-automattic-connect {
-    max-width: 1200px;
+    max-width: 100%;
     margin: 0 auto;
     padding: 20px;
 }
 
 .wpvdb-connect-container {
-    max-width: 800px;
+    max-width: 420px;
     margin: 40px auto;
     background: #fff;
     border-radius: 8px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
     overflow: hidden;
 }
 
 .wpvdb-connect-card {
     background: #fff;
     border-radius: 4px;
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
     padding: 30px;
 }
 
 .wpvdb-connect-header {
-    background: #f9f9f9;
-    padding: 20px;
-    border-bottom: 1px solid #eee;
     text-align: center;
+    margin-bottom: 24px;
 }
 
 .wpvdb-connect-header img {
@@ -121,56 +108,36 @@
     font-size: 16px;
     color: #50575e;
     margin-bottom: 30px;
+    text-align: center;
 }
 
 .wpvdb-connect-methods {
     display: flex;
-    gap: 30px;
-    margin-top: 20px;
+    flex-direction: column;
+    gap: 20px;
 }
 
 .wpvdb-connect-method {
-    flex: 1;
-    background: #f9f9f9;
-    border-radius: 6px;
-    padding: 20px;
-    border: 1px solid #eee;
+    padding: 20px 0;
 }
 
-.wpvdb-connect-method h3 {
-    margin-top: 0;
-    border-bottom: 1px solid #eee;
-    padding-bottom: 10px;
-}
-
-.wpvdb-connect-method p {
-    margin-bottom: 20px;
-}
-
-.wpvdb-connect-divider {
-    position: relative;
+.wpvdb-connect-one-click {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
     text-align: center;
-    margin: 0;
 }
 
-.wpvdb-connect-divider:before {
-    content: '';
-    position: absolute;
-    top: 50%;
-    left: 0;
-    right: 0;
-    height: 1px;
-    background: #ddd;
-    z-index: 1;
+#wpvdb-one-click-connect {
+    min-width: 200px;
+    padding: 10px 20px;
+    height: auto;
+    line-height: 1.4;
+    font-size: 16px;
 }
 
-.wpvdb-connect-divider span {
-    position: relative;
-    background: #f0f0f1;
-    padding: 0 15px;
-    font-size: 14px;
-    color: #757575;
-    z-index: 2;
+.wpvdb-connect-manual {
+    margin-top: 20px;
 }
 
 .wpvdb-form-group {
@@ -193,18 +160,19 @@
 
 .wpvdb-form-actions {
     margin-top: 20px;
-}
-
-.wpvdb-form-actions .button {
-    margin-right: 10px;
+    display: flex;
+    justify-content: space-between;
 }
 
 .wpvdb-connect-footer {
-    margin-top: 30px;
-    padding-top: 20px;
-    border-top: 1px solid #eee;
+    margin-top: 20px;
     color: #757575;
     text-align: center;
+}
+
+.wpvdb-manual-link {
+    margin-top: 10px;
+    font-size: 13px;
 }
 
 #wpvdb-connection-status {
@@ -229,4 +197,22 @@
     color: #721c24;
     border: 1px solid #f5c6cb;
 }
-</style> 
+</style>
+
+<script>
+jQuery(document).ready(function($) {
+    // Toggle manual input form
+    $('#wpvdb-toggle-manual-input').on('click', function(e) {
+        e.preventDefault();
+        $('.wpvdb-connect-manual').slideDown(200);
+        $('.wpvdb-manual-link').hide();
+    });
+    
+    // Hide manual form on cancel
+    $('#wpvdb-cancel-manual-input').on('click', function(e) {
+        e.preventDefault();
+        $('.wpvdb-connect-manual').slideUp(200);
+        $('.wpvdb-manual-link').show();
+    });
+});
+</script> 

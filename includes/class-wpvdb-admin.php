@@ -190,7 +190,7 @@ class Admin {
                 ],
                 'automattic' => [
                     'api_key' => '',
-                    'default_model' => 'automattic-embeddings-001',
+                    'default_model' => 'a8cai-embeddings-small-1',
                 ],
                 'chunk_size' => 1000,
                 'chunk_overlap' => 200,
@@ -230,7 +230,7 @@ class Admin {
                 ],
                 'automattic' => [
                     'api_key' => isset($_POST['wpvdb_automattic_api_key']) ? sanitize_text_field($_POST['wpvdb_automattic_api_key']) : '',
-                    'default_model' => isset($_POST['wpvdb_automattic_model']) ? sanitize_text_field($_POST['wpvdb_automattic_model']) : 'text-embedding-ada-002',
+                    'default_model' => isset($_POST['wpvdb_automattic_model']) ? sanitize_text_field($_POST['wpvdb_automattic_model']) : 'a8cai-embeddings-small-1',
                 ],
                 'chunk_size' => isset($_POST['wpvdb_chunk_size']) ? intval($_POST['wpvdb_chunk_size']) : 1000,
                 'chunk_overlap' => isset($_POST['wpvdb_chunk_overlap']) ? intval($_POST['wpvdb_chunk_overlap']) : 200,
@@ -279,7 +279,7 @@ class Admin {
             $input['automattic']['api_key'] = '';
         }
         if (!isset($input['automattic']['default_model'])) {
-            $input['automattic']['default_model'] = 'automattic-embeddings-001';
+            $input['automattic']['default_model'] = 'a8cai-embeddings-small-1';
         }
         
         // Make sure post_types is always an array
@@ -707,7 +707,7 @@ class Admin {
         if (!isset($settings['automattic']) || !is_array($settings['automattic'])) {
             $settings['automattic'] = [
                 'api_key' => '',
-                'default_model' => 'automattic-embeddings-001'
+                'default_model' => 'a8cai-embeddings-small-1'
             ];
         }
         
@@ -826,7 +826,7 @@ class Admin {
             $settings['openai'] = ['default_model' => 'text-embedding-3-small', 'api_key' => ''];
         }
         if (!isset($settings['automattic']) || !is_array($settings['automattic'])) {
-            $settings['automattic'] = ['default_model' => 'automattic-embeddings-001', 'api_key' => ''];
+            $settings['automattic'] = ['default_model' => 'a8cai-embeddings-small-1', 'api_key' => ''];
         }
         
         // Ensure active/pending provider fields exist
@@ -864,7 +864,7 @@ class Admin {
                         $settings['active_model'] : 
                         (!empty($settings['automattic']['default_model']) ? 
                             $settings['automattic']['default_model'] : 
-                            'automattic-embeddings-001');
+                            'a8cai-embeddings-small-1');
                 } else {
                     $model = !empty($settings['active_model']) ? 
                         $settings['active_model'] : 
@@ -991,7 +991,7 @@ class Admin {
             $settings = get_option('wpvdb_settings');
             $settings['provider'] = 'automattic';
             $settings['automattic']['api_key'] = $mock_api_key;
-            $settings['automattic']['default_model'] = 'automattic-embeddings-001';
+            $settings['automattic']['default_model'] = 'a8cai-embeddings-small-1';
             update_option('wpvdb_settings', $settings);
             
             wp_send_json_success([
@@ -1282,7 +1282,7 @@ class Admin {
                     $settings['openai']['default_model'] : 'text-embedding-3-small';
         } else if ($provider === 'automattic') {
             $model = isset($settings['automattic']['default_model']) && !empty($settings['automattic']['default_model']) ? 
-                    $settings['automattic']['default_model'] : 'automattic-embeddings-001';
+                    $settings['automattic']['default_model'] : 'a8cai-embeddings-small-1';
         }
         
         // Queue for re-embedding
