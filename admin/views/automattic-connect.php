@@ -15,11 +15,13 @@
             <div class="wpvdb-connect-methods">
                 <div class="wpvdb-connect-method wpvdb-connect-one-click">
                     <h3><?php esc_html_e('One-Click Connection', 'wpvdb'); ?></h3>
-                    <p><?php esc_html_e('Connect your Automattic account with a single click. This is the easiest method.', 'wpvdb'); ?></p>
-                    <button id="wpvdb-automattic-one-click" class="button button-primary button-hero">
-                        <?php esc_html_e('Connect with Automattic', 'wpvdb'); ?>
+                    <p><?php esc_html_e('Connect with a single click to automatically set up your Automattic AI API key.', 'wpvdb'); ?></p>
+                    
+                    <button id="wpvdb-one-click-connect" class="button button-primary">
+                        <?php esc_html_e('Connect to Automattic AI', 'wpvdb'); ?>
                     </button>
-                    <div id="wpvdb-connection-status" class="wpvdb-connection-status" style="display: none;">
+                    
+                    <div id="wpvdb-connection-status" class="hidden">
                         <span class="spinner is-active"></span>
                         <span class="status-text"><?php esc_html_e('Connecting...', 'wpvdb'); ?></span>
                     </div>
@@ -82,7 +84,11 @@
 
 .wpvdb-connect-container {
     max-width: 800px;
-    margin: 30px auto;
+    margin: 40px auto;
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    overflow: hidden;
 }
 
 .wpvdb-connect-card {
@@ -93,17 +99,16 @@
 }
 
 .wpvdb-connect-header {
-    display: flex;
-    align-items: center;
-    margin-bottom: 20px;
+    background: #f9f9f9;
+    padding: 20px;
     border-bottom: 1px solid #eee;
-    padding-bottom: 20px;
+    text-align: center;
 }
 
 .wpvdb-connect-header img {
     width: 50px;
     height: auto;
-    margin-right: 15px;
+    margin-bottom: 15px;
 }
 
 .wpvdb-connect-header h2 {
@@ -120,29 +125,26 @@
 
 .wpvdb-connect-methods {
     display: flex;
-    flex-direction: column;
     gap: 30px;
+    margin-top: 20px;
 }
 
 .wpvdb-connect-method {
-    padding: 25px;
-    border-radius: 4px;
+    flex: 1;
     background: #f9f9f9;
-}
-
-.wpvdb-connect-one-click {
-    background: #f0f6fc;
-    border-left: 4px solid #2271b1;
-}
-
-.wpvdb-connect-manual {
-    background: #f8f8f8;
-    border-left: 4px solid #ddd;
+    border-radius: 6px;
+    padding: 20px;
+    border: 1px solid #eee;
 }
 
 .wpvdb-connect-method h3 {
     margin-top: 0;
-    color: #1e1e1e;
+    border-bottom: 1px solid #eee;
+    padding-bottom: 10px;
+}
+
+.wpvdb-connect-method p {
+    margin-bottom: 20px;
 }
 
 .wpvdb-connect-divider {
@@ -177,13 +179,14 @@
 
 .wpvdb-form-group label {
     display: block;
-    margin-bottom: 8px;
+    margin-bottom: 5px;
     font-weight: 600;
 }
 
-.wpvdb-form-group input {
+.wpvdb-form-group input[type="text"],
+.wpvdb-form-group input[type="password"] {
     width: 100%;
-    padding: 8px 12px;
+    padding: 8px;
     border: 1px solid #ddd;
     border-radius: 4px;
 }
@@ -204,79 +207,26 @@
     text-align: center;
 }
 
-.wpvdb-connection-status {
+#wpvdb-connection-status {
     margin-top: 15px;
     padding: 10px;
-    background: #f8f8f8;
     border-radius: 4px;
-    display: flex;
-    align-items: center;
+    display: none;
 }
 
-.wpvdb-connection-status .spinner {
-    float: none;
-    margin-right: 10px;
+#wpvdb-connection-status.hidden {
+    display: none;
 }
 
-.wpvdb-connection-status.success {
-    background-color: #ecf8ed;
-    color: #0a5f0a;
+#wpvdb-connection-status.success {
+    background-color: #d4edda;
+    color: #155724;
+    border: 1px solid #c3e6cb;
 }
 
-.wpvdb-connection-status.error {
-    background-color: #fcebec;
-    color: #a00;
+#wpvdb-connection-status.error {
+    background-color: #f8d7da;
+    color: #721c24;
+    border: 1px solid #f5c6cb;
 }
-</style>
-
-<script>
-jQuery(document).ready(function($) {
-    // One-click connection flow
-    $('#wpvdb-automattic-one-click').on('click', function() {
-        var $button = $(this);
-        var $status = $('#wpvdb-connection-status');
-        
-        // Disable button and show connecting status
-        $button.prop('disabled', true);
-        $status.show();
-        
-        // Simulate API connection (replace with actual API connection)
-        setTimeout(function() {
-            // Mock successful connection
-            var success = Math.random() > 0.2; // 80% success rate for demo
-            
-            if (success) {
-                // Update status to success
-                $status.removeClass('error').addClass('success');
-                $status.find('.status-text').text('<?php esc_attr_e('Connected successfully!', 'wpvdb'); ?>');
-                
-                // Save the settings
-                $.ajax({
-                    url: ajaxurl,
-                    method: 'POST',
-                    data: {
-                        action: 'wpvdb_automattic_connect',
-                        nonce: wpvdb.nonce,
-                        connect_method: 'one_click'
-                    },
-                    success: function(response) {
-                        if (response.success) {
-                            // Redirect to settings page after a delay
-                            setTimeout(function() {
-                                window.location.href = '<?php echo esc_url(admin_url('admin.php?page=wpvdb-settings&automattic_connected=1')); ?>';
-                            }, 1500);
-                        }
-                    }
-                });
-            } else {
-                // Update status to error
-                $status.removeClass('success').addClass('error');
-                $status.find('.status-text').text('<?php esc_attr_e('Connection failed. Please try again or use manual connection.', 'wpvdb'); ?>');
-                
-                // Re-enable button
-                $button.prop('disabled', false);
-            }
-        }, 2000);
-    });
-});
-</script> 
+</style> 

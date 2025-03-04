@@ -53,10 +53,7 @@ class REST {
      * POST /vdb/v1/embed
      * {
      *   "doc_id": 123,
-     *   "text": "some long text",
-     *   "model": "text-embedding-3-small",
-     *   "api_base": "https://api.openai.com/v1/",
-     *   "api_key": "sk-xxx"
+     *   "text": "some long text"
      * }
      * - chunk the text
      * - optional summarization
@@ -70,12 +67,18 @@ class REST {
 
         $doc_id  = $request->get_param('doc_id');
         $text    = $request->get_param('text');
-        $model   = $request->get_param('model') ?: 'text-embedding-3-small';
-        $api_base= $request->get_param('api_base') ?: 'https://api.openai.com/v1/';
-        $api_key = $request->get_param('api_key');
+        
+        // Get API key and model from admin settings instead of from the request
+        $api_key = Settings::get_api_key();
+        $model   = Settings::get_default_model();
+        $api_base= Settings::get_api_base();
 
-        if (!$text || !$api_key) {
-            return new WP_Error('invalid_params', 'Missing required fields: text, api_key.', ['status' => 400]);
+        if (!$text) {
+            return new WP_Error('invalid_params', 'Missing required field: text.', ['status' => 400]);
+        }
+        
+        if (empty($api_key)) {
+            return new WP_Error('configuration_error', 'API key not configured. Please contact site administrator.', ['status' => 400]);
         }
         
         // Ensure text is a string
@@ -165,9 +168,6 @@ class REST {
      * {
      *   "query_text": "some text to embed and search with",
      *   "embedding": [float array],
-     *   "model": "text-embedding-3-small",
-     *   "api_base": "https://api.openai.com/v1/",
-     *   "api_key": "sk-xxx",
      *   "k": 5
      * }
      * - If embedding is provided, skip generating. Otherwise generate from query_text.
@@ -177,91 +177,152 @@ class REST {
         global $wpdb;
         $table_name = $wpdb->prefix . 'wpvdb_embeddings';
 
+        error_log('[WPVDB DEBUG] handle_query REST endpoint called');
+
         $query_text = $request->get_param('query_text');
         $embedding  = $request->get_param('embedding');
-        $model      = $request->get_param('model') ?: 'text-embedding-3-small';
-        $api_base   = $request->get_param('api_base') ?: 'https://api.openai.com/v1/';
-        $api_key    = $request->get_param('api_key');
         $k          = absint($request->get_param('k')) ?: 5;
+        
+        error_log('[WPVDB DEBUG] Query parameters - query_text: ' . (empty($query_text) ? 'empty' : substr($query_text, 0, 50) . '...') . 
+                  ', embedding: ' . (empty($embedding) ? 'empty' : '[array]') . 
+                  ', k: ' . $k);
+        
+        // Get API key and model from admin settings instead of from the request
+        $api_key    = Settings::get_api_key();
+        $model      = Settings::get_default_model();
+        $api_base   = Settings::get_api_base();
+        
+        error_log('[WPVDB DEBUG] Using model: ' . $model . ', API base: ' . $api_base);
 
         // If no embedding is provided, we generate from query_text
         if (!$embedding && !$query_text) {
+            error_log('[WPVDB ERROR] No query_text or embedding provided');
             return new WP_Error('invalid_params', 'Provide either "query_text" or "embedding".', ['status' => 400]);
         }
-        if (!$embedding && !$api_key) {
-            return new WP_Error('invalid_params', 'No embedding given, so "api_key" is required to generate it.', ['status' => 400]);
+        if (!$embedding && empty($api_key)) {
+            error_log('[WPVDB ERROR] No API key configured');
+            return new WP_Error('configuration_error', 'API key not configured. Please contact site administrator.', ['status' => 400]);
         }
 
-        if (!$embedding) {
-            // Generate
-            $embedding_result = Core::get_embedding($query_text, $model, $api_base, $api_key);
-            if (is_wp_error($embedding_result)) {
-                return $embedding_result;
-            }
-            $embedding = $embedding_result;
-        }
-
-        // Now we have an embedding array of floats. If we have native vector support, use it. Otherwise fallback.
-        $has_vector = Activation::has_native_vector_support();
-        $results = [];
-
-        if ($has_vector) {
-            // Use MariaDB/MySQL vector functions
-            // We'll rely on the fact that we used a COSINE index or EUCLIDEAN.
-            // We can do something like:
-            $vecHex = self::convert_array_to_vector_hex($embedding);
-
-            // If table uses VEC_DISTANCE(...) function:
-            // for example: SELECT doc_id, chunk_id, VEC_DISTANCE_COSINE(embedding, x'HEX') as distance FROM ...
-            // We do a standard ordering, limit $k
-            // Remember we used "embedding VECTOR(1536)" with "VECTOR INDEX (embedding) DISTANCE=cosine"
-            // so VEC_DISTANCE is the same as VEC_DISTANCE_COSINE.
-
-            $sql = $wpdb->prepare("
-                SELECT 
-                    id, doc_id, chunk_id, chunk_content, summary,
-                    VEC_DISTANCE(embedding, x%s) AS distance
-                FROM $table_name
-                ORDER BY VEC_DISTANCE(embedding, x%s)
-                LIMIT %d
-            ", $vecHex, $vecHex, $k);
-
-            $rows = $wpdb->get_results($sql, ARRAY_A);
-
-            if (!empty($wpdb->last_error)) {
-                return new WP_Error('query_error', $wpdb->last_error, ['status' => 500]);
-            }
-
-            $results = $rows ?: [];
-        } else {
-            // Fallback: retrieve all embeddings from DB, compute distance in PHP, then sort by distance
-            $all_rows = $wpdb->get_results("SELECT id, doc_id, chunk_id, chunk_content, summary, embedding FROM $table_name", ARRAY_A);
-            if (!empty($wpdb->last_error)) {
-                return new WP_Error('query_error', $wpdb->last_error, ['status' => 500]);
-            }
-
-            $distances = [];
-            foreach ($all_rows as $r) {
-                $stored_emb = json_decode($r['embedding'], true);
-                if (!is_array($stored_emb)) {
-                    // If the row is invalid or old format, skip or handle error
-                    continue;
+        try {
+            if (!$embedding) {
+                // Generate
+                error_log('[WPVDB DEBUG] Generating embedding from query_text');
+                $embedding_result = Core::get_embedding($query_text, $model, $api_base, $api_key);
+                if (is_wp_error($embedding_result)) {
+                    error_log('[WPVDB ERROR] Error generating embedding: ' . $embedding_result->get_error_message());
+                    return $embedding_result;
                 }
-                $d = self::cosine_distance($embedding, $stored_emb);
-                $r['distance'] = $d;
-                $distances[] = $r;
+                $embedding = $embedding_result;
+                error_log('[WPVDB DEBUG] Embedding generated successfully, dimensions: ' . count($embedding));
             }
-            // Sort ascending by distance:
-            usort($distances, function($a, $b) {
-                return $a['distance'] <=> $b['distance'];
-            });
-            $results = array_slice($distances, 0, $k);
-        }
+    
+            // Now we have an embedding array of floats. If we have native vector support, use it. Otherwise fallback.
+            $has_vector = Database::has_native_vector_support();
+            error_log('[WPVDB DEBUG] Vector support detected: ' . ($has_vector ? 'Yes' : 'No'));
+            $results = [];
+    
+            if ($has_vector) {
+                try {
+                    // Convert the embedding array to a proper vector format
+                    $embedding_json = json_encode($embedding);
+                    
+                    // Use Database class to get the appropriate vector function
+                    $vector_function = Database::get_vector_from_string_function($embedding_json);
+                    error_log('[WPVDB DEBUG] Using vector function: ' . $vector_function);
+                    
+                    // Use Database class to get the appropriate distance function
+                    $distance_function = Database::get_vector_distance_function('embedding', $vector_function, 'cosine');
+                    error_log('[WPVDB DEBUG] Using distance function: ' . $distance_function);
+                    
+                    $sql = $wpdb->prepare("
+                        SELECT 
+                            id, doc_id, chunk_id, chunk_content, summary,
+                            $distance_function AS distance
+                        FROM $table_name
+                        ORDER BY distance
+                        LIMIT %d
+                    ", $k);
+                    
+                    error_log('[WPVDB DEBUG] Vector query SQL: ' . $sql);
+    
+                    $rows = $wpdb->get_results($sql, ARRAY_A);
+    
+                    if (!empty($wpdb->last_error)) {
+                        error_log('[WPVDB ERROR] Database error: ' . $wpdb->last_error);
+                        
+                        // Try a direct query without wpdb->prepare to see the exact SQL
+                        $raw_sql = "SELECT 
+                                id, doc_id, chunk_id, chunk_content, summary,
+                                $distance_function AS distance
+                            FROM $table_name
+                            ORDER BY distance
+                            LIMIT $k";
+                            
+                        error_log('[WPVDB DEBUG] Raw SQL query: ' . $raw_sql);
+                        $raw_result = $wpdb->query($raw_sql);
+                        
+                        if ($raw_result === false) {
+                            error_log('[WPVDB ERROR] Raw SQL also failed: ' . $wpdb->last_error);
+                        } else {
+                            error_log('[WPVDB DEBUG] Raw SQL succeeded, issue might be with wpdb->prepare');
+                        }
+                        
+                        return new WP_Error('query_error', $wpdb->last_error, ['status' => 400]);
+                    }
+    
+                    if ($rows) {
+                        error_log('[WPVDB DEBUG] Found ' . count($rows) . ' results');
+                    } else {
+                        error_log('[WPVDB DEBUG] No results found');
+                    }
+                    
+                    $results = $rows ?: [];
+                } catch (\Exception $e) {
+                    error_log('[WPVDB ERROR] Exception in vector query: ' . $e->getMessage());
+                    return new WP_Error('query_error', 'Exception: ' . $e->getMessage(), ['status' => 500]);
+                }
+            } else {
+                error_log('[WPVDB DEBUG] No vector support, using PHP fallback search');
+                // Fallback: retrieve all embeddings from DB, compute distance in PHP, then sort by distance
+                $all_rows = $wpdb->get_results("SELECT id, doc_id, chunk_id, chunk_content, summary, embedding FROM $table_name", ARRAY_A);
+                if (!empty($wpdb->last_error)) {
+                    return new WP_Error('query_error', $wpdb->last_error, ['status' => 500]);
+                }
 
-        return new WP_REST_Response([
-            'success' => true,
-            'results' => $results
-        ], 200);
+                $distances = [];
+                foreach ($all_rows as $r) {
+                    $stored_emb = json_decode($r['embedding'], true);
+                    if (!is_array($stored_emb)) {
+                        // If the row is invalid or old format, skip or handle error
+                        continue;
+                    }
+                    $d = self::cosine_distance($embedding, $stored_emb);
+                    $r['distance'] = $d;
+                    $distances[] = $r;
+                }
+                // Sort ascending by distance:
+                usort($distances, function($a, $b) {
+                    return $a['distance'] <=> $b['distance'];
+                });
+                $results = array_slice($distances, 0, $k);
+            }
+    
+            // Add debug info to results
+            $results = array_map(function($row) {
+                $row['debug_info'] = [
+                    'database_type' => Database::get_db_type(),
+                    'has_vector_support' => Database::has_native_vector_support() ? 'yes' : 'no'
+                ];
+                return $row;
+            }, $results);
+            
+            error_log('[WPVDB DEBUG] Returning ' . count($results) . ' results from query endpoint');
+            return rest_ensure_response($results);
+        } catch (\Exception $e) {
+            error_log('[WPVDB ERROR] Unhandled exception in handle_query: ' . $e->getMessage());
+            return new WP_Error('server_error', 'Unhandled exception: ' . $e->getMessage(), ['status' => 500]);
+        }
     }
 
     /**
@@ -272,10 +333,34 @@ class REST {
         global $wpdb;
         $table_name = $wpdb->prefix . 'wpvdb_embeddings';
         
-        // Get database statistics
-        $total_embeddings = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$table_name}");
-        $total_docs = (int) $wpdb->get_var("SELECT COUNT(DISTINCT doc_id) FROM {$table_name}");
-        $has_vector = Activation::has_native_vector_support();
+        // Check if table exists first
+        $table_exists = $wpdb->get_var("SHOW TABLES LIKE '{$table_name}'") === $table_name;
+        
+        // Default values
+        $total_embeddings = 0;
+        $total_docs = 0;
+        
+        // Get database statistics only if table exists
+        if ($table_exists) {
+            // Temporarily suppress errors
+            $wpdb->hide_errors();
+            $show_errors = $wpdb->show_errors;
+            $wpdb->show_errors = false;
+            
+            try {
+                $total_embeddings = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$table_name}") ?: 0;
+                $total_docs = (int) $wpdb->get_var("SELECT COUNT(DISTINCT doc_id) FROM {$table_name}") ?: 0;
+            } catch (\Exception $e) {
+                // Reset to defaults in case of error
+                $total_embeddings = 0;
+                $total_docs = 0;
+            }
+            
+            // Restore error display
+            $wpdb->show_errors = $show_errors;
+        }
+        
+        $has_vector = Database::has_native_vector_support();
         
         // Get database version
         $db_version = $wpdb->get_var("SELECT VERSION()");
@@ -287,123 +372,146 @@ class REST {
             'total_documents' => $total_docs,
             'native_vector_support' => $has_vector,
             'database_version' => $db_version,
+            'table_exists' => $table_exists,
         ], 200);
     }
 
     /**
-     * Insert an embedding into the database
-     * Changed from private to public so it can be called from WPVDB_Queue
-     * 
-     * @param int|string $doc_id The document ID
-     * @param string $chunk_id The chunk ID
-     * @param string $chunk_text The chunk text
-     * @param string $summary Optional summary of the chunk
-     * @param array $embedding The embedding vector
-     * @return int|WP_Error The row ID or error
+     * Insert a row into the embeddings table with the given data.
+     * If vector support is available, use the native VECTOR type, otherwise fallback.
      */
-    public static function insert_embedding_row($doc_id, $chunk_id, $chunk_text, $summary, $embedding) {
+    public static function insert_embedding_row($doc_id, $chunk_id, $chunk_content, $summary, $embedding) {
         global $wpdb;
         $table_name = $wpdb->prefix . 'wpvdb_embeddings';
-        $has_vector = Activation::has_native_vector_support();
+
+        error_log('[WPVDB DEBUG] insert_embedding_row called for doc_id: ' . $doc_id);
+        
+        // Check for vector support and handle storage differently
+        $has_vector = Database::has_native_vector_support();
+        error_log('[WPVDB DEBUG] Vector support detected: ' . ($has_vector ? 'Yes' : 'No'));
 
         if ($has_vector) {
-            // Convert array of floats to hex for insertion as a VECTOR column using e.g. VEC_FromText() or x'...'
-            $vecHex = self::convert_array_to_vector_hex($embedding);
-
-            // Insert:
-            // embedding = x'...'  or embedding = VEC_FromText('[...]')
-            // We'll do x'...' style
-            $sql = $wpdb->prepare("
-                INSERT INTO $table_name (doc_id, chunk_id, chunk_content, summary, embedding)
-                VALUES (%d, %s, %s, %s, x%s)
-            ", $doc_id, $chunk_id, $chunk_text, $summary, $vecHex);
-
-            $res = $wpdb->query($sql);
-            if ($res === false) {
-                return new \WP_Error('db_error', $wpdb->last_error);
+            try {
+                // Convert embedding to JSON
+                $embedding_json = json_encode($embedding);
+                error_log('[WPVDB DEBUG] Embedding JSON: ' . (strlen($embedding_json) > 100 ? substr($embedding_json, 0, 100) . '...' : $embedding_json));
+                
+                // Use the Database class to determine the vector function to use
+                $vector_function = Database::get_vector_from_string_function($embedding_json);
+                error_log('[WPVDB DEBUG] Vector function: ' . $vector_function);
+                
+                // For MySQL, the prepare statement handles the quoting properly
+                // For MariaDB, we need to make sure the vector function is inserted as-is
+                if (Database::get_db_type() === 'mariadb') {
+                    // Use a direct query for MariaDB with proper quoting
+                    $sql = $wpdb->prepare(
+                        "INSERT INTO $table_name 
+                        (doc_id, chunk_id, chunk_content, embedding, summary) 
+                        VALUES (%d, %s, %s, $vector_function, %s)",
+                        $doc_id, $chunk_id, $chunk_content, $summary
+                    );
+                } else {
+                    // For MySQL, use the standard prepare statement
+                    $sql = $wpdb->prepare(
+                        "INSERT INTO $table_name 
+                        (doc_id, chunk_id, chunk_content, embedding, summary) 
+                        VALUES (%d, %s, %s, $vector_function, %s)",
+                        $doc_id, $chunk_id, $chunk_content, $summary
+                    );
+                }
+                
+                error_log('[WPVDB DEBUG] SQL query: ' . $sql);
+                
+                $result = $wpdb->query($sql);
+                
+                if ($result === false) {
+                    error_log('[WPVDB ERROR] Database error: ' . $wpdb->last_error);
+                    
+                    // Try a direct query without wpdb->prepare to see the exact SQL
+                    $vector_func_parts = explode('(', $vector_function, 2);
+                    $func_name = $vector_func_parts[0];
+                    $vector_value = isset($vector_func_parts[1]) ? rtrim($vector_func_parts[1], ')') : '';
+                    
+                    $raw_sql = "INSERT INTO $table_name 
+                        (doc_id, chunk_id, chunk_content, embedding, summary) 
+                        VALUES ($doc_id, '" . esc_sql($chunk_id) . "', '" . esc_sql($chunk_content) . "', $func_name($vector_value), '" . esc_sql($summary) . "')";
+                    
+                    error_log('[WPVDB DEBUG] Raw SQL query: ' . $raw_sql);
+                    $raw_result = $wpdb->query($raw_sql);
+                    
+                    if ($raw_result === false) {
+                        error_log('[WPVDB ERROR] Raw SQL also failed: ' . $wpdb->last_error);
+                    } else {
+                        error_log('[WPVDB DEBUG] Raw SQL succeeded, issue might be with wpdb->prepare');
+                    }
+                } else {
+                    error_log('[WPVDB DEBUG] Insert successful, row ID: ' . $wpdb->insert_id);
+                }
+            } catch (\Exception $e) {
+                error_log('[WPVDB ERROR] Exception in insert_embedding_row: ' . $e->getMessage());
+                $result = false;
             }
-            $id = $wpdb->insert_id;
-            return [
-                'id' => $id,
-                'doc_id' => $doc_id,
-                'chunk_id' => $chunk_id,
-            ];
         } else {
-            // Fallback: store as JSON
-            $json_emb = wp_json_encode($embedding);
-            $res = $wpdb->insert($table_name, [
-                'doc_id'        => $doc_id,
-                'chunk_id'      => $chunk_id,
-                'chunk_content' => $chunk_text,
-                'summary'       => $summary,
-                'embedding'     => $json_emb,
-            ], [
-                '%d','%s','%s','%s','%s'
-            ]);
-            if ($res === false) {
-                return new \WP_Error('db_error', $wpdb->last_error);
+            try {
+                // Fallback: Store as serialized LONGTEXT
+                // For compatibility with both types of tables and retrieval
+                $embedding_json = json_encode($embedding);
+                error_log('[WPVDB DEBUG] Fallback storage as LONGTEXT, JSON length: ' . strlen($embedding_json));
+                
+                $result = $wpdb->query($wpdb->prepare(
+                    "INSERT INTO $table_name 
+                    (doc_id, chunk_id, chunk_content, embedding, summary) 
+                    VALUES (%d, %s, %s, %s, %s)",
+                    $doc_id, $chunk_id, $chunk_content, $embedding_json, $summary
+                ));
+                
+                if ($result === false) {
+                    error_log('[WPVDB ERROR] Fallback insert failed: ' . $wpdb->last_error);
+                } else {
+                    error_log('[WPVDB DEBUG] Fallback insert successful, row ID: ' . $wpdb->insert_id);
+                }
+            } catch (\Exception $e) {
+                error_log('[WPVDB ERROR] Exception in fallback insert: ' . $e->getMessage());
+                $result = false;
             }
-            $id = $wpdb->insert_id;
-            return [
-                'id' => $id,
-                'doc_id' => $doc_id,
-                'chunk_id' => $chunk_id,
-            ];
-        }
-    }
-
-    /**
-     * Convert array of floats to a binary hex string suitable for x'...' insertion in a MySQL/MariaDB VECTOR column.
-     * This is a simplified approach. Production usage should ensure endianness and 32-bit float correctness.
-     *
-     * @param array $floats
-     * @return string hex
-     */
-    public static function convert_array_to_vector_hex($floats) {
-        if (!is_array($floats)) {
-            // If not an array, return an empty hex string or log an error
-            Core::log_error('convert_array_to_vector_hex received non-array input', ['input' => $floats]);
-            return '';
         }
         
-        $binary = '';
-        foreach ($floats as $f) {
-            // Ensure we have a valid float value
-            if ($f === null) {
-                $f = 0.0;
-            }
-            // pack float (32-bit single precision).
-            $binary .= pack('f', floatval($f));
+        if ($result === false) {
+            error_log('[WPVDB ERROR] Final insert result: Failed - ' . $wpdb->last_error);
+            return new WP_Error('db_error', $wpdb->last_error, ['status' => 500]);
         }
-        // return hex representation
-        return bin2hex($binary);
+
+        $row_id = $wpdb->insert_id;
+        error_log('[WPVDB DEBUG] Final insert result: Success - ID: ' . $row_id);
+        return [
+            'id'            => $row_id,
+            'doc_id'        => $doc_id,
+            'chunk_id'      => $chunk_id,
+            'chunk_content' => $chunk_content,
+            'summary'       => $summary,
+        ];
     }
 
     /**
-     * Simple fallback distance function for two vectors in PHP. 
-     * We'll do 1 - cosine_similarity = cosine_distance.
-     *
-     * @param array $v1
-     * @param array $v2
-     * @return float
+     * Helper for cosine distance calculation in PHP (used as fallback).
      */
-    public static function cosine_distance($v1, $v2) {
+    public static function cosine_distance($vec1, $vec2) {
         // Validate inputs
-        if (!is_array($v1) || !is_array($v2)) {
+        if (!is_array($vec1) || !is_array($vec2)) {
             Core::log_error('cosine_distance received non-array input', [
-                'v1' => $v1,
-                'v2' => $v2
+                'v1' => $vec1,
+                'v2' => $vec2
             ]);
             return 1.0; // Maximum distance as a safe default
         }
         
         // Ensure arrays are of equal length, pad or truncate if needed
-        $length = count($v1);
-        if (count($v2) != $length) {
-            // Either truncate or pad v2 to match v1's length
-            $v2 = array_slice($v2, 0, $length);
-            while (count($v2) < $length) {
-                $v2[] = 0.0;
+        $length = count($vec1);
+        if (count($vec2) != $length) {
+            // Either truncate or pad vec2 to match vec1's length
+            $vec2 = array_slice($vec2, 0, $length);
+            while (count($vec2) < $length) {
+                $vec2[] = 0.0;
             }
         }
         
@@ -413,8 +521,8 @@ class REST {
         
         for ($i = 0; $i < $length; $i++) {
             // Ensure each value is a valid number
-            $val1 = isset($v1[$i]) && is_numeric($v1[$i]) ? floatval($v1[$i]) : 0.0;
-            $val2 = isset($v2[$i]) && is_numeric($v2[$i]) ? floatval($v2[$i]) : 0.0;
+            $val1 = isset($vec1[$i]) && is_numeric($vec1[$i]) ? floatval($vec1[$i]) : 0.0;
+            $val2 = isset($vec2[$i]) && is_numeric($vec2[$i]) ? floatval($vec2[$i]) : 0.0;
             
             $dot += $val1 * $val2;
             $mag1 += $val1 * $val1;

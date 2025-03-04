@@ -1,5 +1,5 @@
--- Enable MySQL 9.0+ vector functionality
--- This file sets up native VECTOR type support
+-- Enable MySQL 9.2+ vector functionality
+-- This file sets up native VECTOR type support without fallbacks
 
 -- Make sure we're using the WordPress database
 USE wordpress;
@@ -14,21 +14,22 @@ CREATE TABLE IF NOT EXISTS vector_test (
   embedding VECTOR(1536) NULL
 );
 
--- MySQL 9.0+ has native VECTOR type - verify it works
--- This will insert a test vector or fail gracefully if vector support isn't available
-SET @mysql_version = (SELECT VERSION());
-SET @has_vector_support = (SELECT COUNT(*) FROM information_schema.COLUMNS 
-                           WHERE TABLE_SCHEMA='wordpress' AND TABLE_NAME='vector_test' 
-                           AND COLUMN_NAME='embedding' AND DATA_TYPE='vector');
+-- MySQL 9.2 has native VECTOR type - insert a test vector
+INSERT INTO vector_test (description, embedding) 
+VALUES ('test vector', STRING_TO_VECTOR('[0.1, 0.2, 0.3]'));
 
--- Only insert test data if vector support is available
-SET @sql = IF(@has_vector_support > 0, 
-              'INSERT INTO vector_test (description, embedding) VALUES (\'test vector\', VECTOR[0.1, 0.2, 0.3])',
-              'SELECT \'Vector support not available\' as message');
+-- Test vector distance functions
+SELECT DISTANCE(
+  STRING_TO_VECTOR('[1.0, 2.0, 3.0]'),
+  STRING_TO_VECTOR('[1.0, 2.0, 3.0]'),
+  'COSINE'
+) as exact_match_distance;
 
-PREPARE stmt FROM @sql;
-EXECUTE stmt;
-DEALLOCATE PREPARE stmt;
+SELECT DISTANCE(
+  STRING_TO_VECTOR('[1.0, 2.0, 3.0]'),
+  STRING_TO_VECTOR('[2.0, 3.0, 4.0]'),
+  'COSINE'
+) as similar_vectors_distance;
 
 -- Display configuration message
 SELECT 'MySQL Vector Database Setup Complete' as message; 

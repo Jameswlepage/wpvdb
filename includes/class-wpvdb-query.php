@@ -34,6 +34,8 @@ class Query {
             return;
         }
 
+        error_log('[WPVDB DEBUG] maybe_vector_search triggered with query: ' . $vdb_query);
+
         // For simplicity, embed and do a fallback search. Then get the doc_ids, presumably post_id was stored as doc_id.
         global $wpdb;
         $table_name = $wpdb->prefix . 'wpvdb_embeddings';
@@ -42,6 +44,7 @@ class Query {
         $api_key = apply_filters('wpvdb_default_api_key', '');
         if (!$api_key) {
             // If there's no stored key, we can't generate embeddings. We skip.
+            error_log('[WPVDB ERROR] No API key found, skipping vector search');
             return;
         }
 
@@ -50,73 +53,109 @@ class Query {
         if (empty($model)) {
             $model = 'text-embedding-3-small'; // Default fallback
         }
+        error_log('[WPVDB DEBUG] Using embedding model: ' . $model);
         
         // Get API base URL with fallback
         $api_base = Settings::get_api_base();
         if (empty($api_base)) {
             $api_base = 'https://api.openai.com/v1/';
         }
+        error_log('[WPVDB DEBUG] Using API base: ' . $api_base);
 
-        $embedding_result = Core::get_embedding($vdb_query, $model, $api_base, $api_key);
-        if (is_wp_error($embedding_result)) {
-            return; // skip
-        }
-
-        $embedding = $embedding_result;
-        $has_vector = Activation::has_native_vector_support();
-
-        $limit = $query->get('posts_per_page') ?: 10;
-
-        $doc_ids = [];
-
-        if ($has_vector) {
-            // Use vector index approach
-            $vecHex = REST::convert_array_to_vector_hex($embedding);
-            // doc_id presumably is the post ID, so let's do a limited query
-            $sql = $wpdb->prepare("
-                SELECT doc_id,
-                    VEC_DISTANCE(embedding, x%s) as distance
-                FROM $table_name
-                GROUP BY doc_id
-                ORDER BY VEC_DISTANCE(embedding, x%s)
-                LIMIT %d
-            ", $vecHex, $vecHex, $limit * 3 // fetch more candidates than needed
-            );
-            $rows = $wpdb->get_results($sql, ARRAY_A);
-            if ($rows) {
-                foreach ($rows as $r) {
-                    $doc_ids[] = (int) $r['doc_id'];
-                }
+        try {
+            $embedding_result = Core::get_embedding($vdb_query, $model, $api_base, $api_key);
+            if (is_wp_error($embedding_result)) {
+                error_log('[WPVDB ERROR] Error generating embedding: ' . $embedding_result->get_error_message());
+                return; // skip
             }
-        } else {
-            // Fallback: do in PHP
-            $all_rows = $wpdb->get_results("SELECT doc_id, embedding FROM $table_name", ARRAY_A);
-            $distances = [];
-            foreach ($all_rows as $r) {
-                $stored_emb = json_decode($r['embedding'], true);
-                if (!is_array($stored_emb)) {
-                    continue;
+
+            error_log('[WPVDB DEBUG] Embedding generated successfully, dimensions: ' . count($embedding_result));
+            
+            $embedding = $embedding_result;
+            $has_vector = Database::has_native_vector_support();
+            error_log('[WPVDB DEBUG] Vector support detected: ' . ($has_vector ? 'Yes' : 'No'));
+
+            $limit = $query->get('posts_per_page') ?: 10;
+            error_log('[WPVDB DEBUG] Posts per page limit: ' . $limit);
+
+            $doc_ids = [];
+
+            if ($has_vector) {
+                try {
+                    // Convert the embedding array to JSON
+                    $embedding_json = json_encode($embedding);
+                    
+                    // Use Database class to get the appropriate vector function
+                    $vector_function = Database::get_vector_from_string_function($embedding_json);
+                    error_log('[WPVDB DEBUG] Using vector function: ' . $vector_function);
+                    
+                    // Use Database class to get the appropriate distance function
+                    $distance_function = Database::get_vector_distance_function('embedding', $vector_function, 'cosine');
+                    error_log('[WPVDB DEBUG] Using distance function: ' . $distance_function);
+                    
+                    $sql = $wpdb->prepare("
+                        SELECT doc_id,
+                            $distance_function as distance
+                        FROM $table_name
+                        GROUP BY doc_id
+                        ORDER BY distance
+                        LIMIT %d
+                    ", $limit * 3 // fetch more candidates than needed
+                    );
+                    
+                    error_log('[WPVDB DEBUG] Vector search SQL: ' . $sql);
+                    
+                    $rows = $wpdb->get_results($sql, ARRAY_A);
+                    
+                    if ($wpdb->last_error) {
+                        error_log('[WPVDB ERROR] Database error in vector search: ' . $wpdb->last_error);
+                    }
+                    
+                    if ($rows) {
+                        error_log('[WPVDB DEBUG] Found ' . count($rows) . ' results from vector search');
+                        foreach ($rows as $r) {
+                            $doc_ids[] = (int) $r['doc_id'];
+                            error_log('[WPVDB DEBUG] Added doc_id: ' . $r['doc_id'] . ' with distance: ' . $r['distance']);
+                        }
+                    } else {
+                        error_log('[WPVDB DEBUG] No results found from vector search');
+                    }
+                } catch (\Exception $e) {
+                    error_log('[WPVDB ERROR] Exception in vector search: ' . $e->getMessage());
                 }
-                $d = REST::cosine_distance($embedding, $stored_emb);
-                $distances[] = [
-                    'doc_id'   => (int) $r['doc_id'],
-                    'distance' => $d,
-                ];
+            } else {
+                error_log('[WPVDB DEBUG] No vector support, using PHP fallback search');
+                // Fallback: do in PHP
+                $all_rows = $wpdb->get_results("SELECT doc_id, embedding FROM $table_name", ARRAY_A);
+                $distances = [];
+                foreach ($all_rows as $r) {
+                    $stored_emb = json_decode($r['embedding'], true);
+                    if (!is_array($stored_emb)) {
+                        continue;
+                    }
+                    $d = REST::cosine_distance($embedding, $stored_emb);
+                    $distances[] = [
+                        'doc_id'   => (int) $r['doc_id'],
+                        'distance' => $d,
+                    ];
+                }
+                usort($distances, function($a, $b){return $a['distance'] <=> $b['distance'];});
+                $distances = array_slice($distances, 0, $limit * 3);
+                $doc_ids   = wp_list_pluck($distances, 'doc_id');
             }
-            usort($distances, function($a, $b){return $a['distance'] <=> $b['distance'];});
-            $distances = array_slice($distances, 0, $limit * 3);
-            $doc_ids   = wp_list_pluck($distances, 'doc_id');
-        }
 
-        if (empty($doc_ids)) {
-            // No matches, so force query to return no posts
-            $query->set('post__in', [0]);
-            return;
-        }
+            if (empty($doc_ids)) {
+                // No matches, so force query to return no posts
+                $query->set('post__in', [0]);
+                return;
+            }
 
-        // If there are doc_ids, limit the WP query to only those
-        $doc_ids = array_unique($doc_ids);
-        $query->set('post__in', $doc_ids);
-        $query->set('orderby', 'post__in');
+            // If there are doc_ids, limit the WP query to only those
+            $doc_ids = array_unique($doc_ids);
+            $query->set('post__in', $doc_ids);
+            $query->set('orderby', 'post__in');
+        } catch (\Exception $e) {
+            error_log('[WPVDB ERROR] Unhandled exception in maybe_vector_search: ' . $e->getMessage());
+        }
     }
 }

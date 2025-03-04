@@ -131,7 +131,7 @@ class Core {
         }
         
         // Remove newlines (as recommended in many embedding docs).
-        $text = str_replace("\n", " ", $text);
+        $text = str_replace(["\r\n", "\r", "\n"], " ", $text);
 
         // Example using WP remote post:
         $url = trailingslashit($api_base) . 'embeddings';
@@ -297,11 +297,11 @@ class Core {
     }
 
     /**
-     * Automatically embed post content when a post is published
-     * 
-     * @param int $post_id Post ID
-     * @param WP_Post $post Post object
-     * @param bool $update Whether this is an update
+     * Auto-embed a post when it's published or updated.
+     *
+     * @param int    $post_id Post ID.
+     * @param object $post    Post object.
+     * @param bool   $update  Whether the post is being updated.
      */
     public static function auto_embed_post($post_id, $post, $update) {
         // Validate inputs
@@ -330,9 +330,18 @@ class Core {
             return;
         }
         
-        // Skip if already processed
-        if (get_post_meta($post_id, '_wpvdb_embedded', true)) {
-            return;
+        // If this is an update and post is already embedded, clear existing embeddings
+        if ($update && get_post_meta($post_id, '_wpvdb_embedded', true)) {
+            // Delete any existing embeddings for this post
+            global $wpdb;
+            $table_name = $wpdb->prefix . 'wpvdb_embeddings';
+            $wpdb->delete($table_name, ['doc_id' => $post_id], ['%d']);
+            
+            // Delete post meta
+            delete_post_meta($post_id, '_wpvdb_embedded');
+            delete_post_meta($post_id, '_wpvdb_chunks_count');
+            delete_post_meta($post_id, '_wpvdb_embedded_date');
+            delete_post_meta($post_id, '_wpvdb_embedded_model');
         }
         
         // Queue for background processing with validation

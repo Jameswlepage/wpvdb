@@ -37,6 +37,11 @@ if (file_exists(WPVDB_PLUGIN_DIR . 'vendor/autoload.php')) {
     require_once WPVDB_PLUGIN_DIR . 'vendor/autoload.php';
 }
 
+// Initialize Action Scheduler
+if (file_exists(WPVDB_PLUGIN_DIR . 'vendor/woocommerce/action-scheduler/action-scheduler.php')) {
+    require_once WPVDB_PLUGIN_DIR . 'vendor/woocommerce/action-scheduler/action-scheduler.php';
+}
+
 /**
  * Check if Action Scheduler is available
  * 
@@ -46,7 +51,8 @@ function wpvdb_has_action_scheduler() {
     return class_exists('ActionScheduler') && function_exists('as_schedule_single_action');
 }
 
-// Load required files.
+// Include class files.
+require_once WPVDB_PLUGIN_DIR . 'includes/class-wpvdb-database.php';
 require_once WPVDB_PLUGIN_DIR . 'includes/class-wpvdb-activation.php';
 require_once WPVDB_PLUGIN_DIR . 'includes/class-wpvdb-core.php';
 require_once WPVDB_PLUGIN_DIR . 'includes/class-wpvdb-rest.php';
@@ -72,7 +78,7 @@ function wpvdb_deactivate_plugin() {
 register_deactivation_hook(__FILE__, 'wpvdb_deactivate_plugin');
 
 /**
- * Plugin init: bootstrap the core and REST APIs.
+ * Plugin init: bootstrap the core and REST APIs. 
  */
 function wpvdb_init_plugin() {
     // Initialize settings

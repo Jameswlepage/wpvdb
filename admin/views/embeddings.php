@@ -110,76 +110,9 @@
     <div id="wpvdb-bulk-embed-modal" class="wpvdb-modal" style="display:none;">
         <div class="wpvdb-modal-content">
             <span class="wpvdb-modal-close">&times;</span>
-            <h2><?php esc_html_e('Bulk Embed Content', 'wpvdb'); ?></h2>
+            <h2><?php esc_html_e('Bulk Generate Embeddings', 'wpvdb'); ?></h2>
             
             <form id="wpvdb-bulk-embed-form">
-                <div class="wpvdb-form-group">
-                    <label for="wpvdb-provider"><?php esc_html_e('AI Provider', 'wpvdb'); ?></label>
-                    <select id="wpvdb-provider" name="provider">
-                        <?php 
-                        $settings = get_option('wpvdb_settings');
-                        $current_provider = $settings['provider'] ?? 'openai';
-                        $providers = [
-                            'openai' => __('OpenAI', 'wpvdb'),
-                            'automattic' => __('Automattic AI', 'wpvdb'),
-                        ];
-                        
-                        foreach ($providers as $id => $name) {
-                            printf(
-                                '<option value="%s" %s>%s</option>',
-                                esc_attr($id),
-                                selected($current_provider, $id, false),
-                                esc_html($name)
-                            );
-                        }
-                        ?>
-                    </select>
-                </div>
-
-                <div class="wpvdb-form-group" id="openai-models" <?php echo $current_provider !== 'openai' ? 'style="display:none;"' : ''; ?>>
-                    <label for="wpvdb-openai-model"><?php esc_html_e('OpenAI Model', 'wpvdb'); ?></label>
-                    <select id="wpvdb-openai-model" name="model">
-                        <?php 
-                        $default_model = $settings['openai']['default_model'] ?? 'text-embedding-3-small';
-                        $models = [
-                            'text-embedding-3-small' => 'text-embedding-3-small (Recommended)',
-                            'text-embedding-3-large' => 'text-embedding-3-large (Higher Accuracy)',
-                            'text-embedding-ada-002' => 'text-embedding-ada-002 (Legacy)'
-                        ];
-                        
-                        foreach ($models as $model_id => $model_name) {
-                            printf(
-                                '<option value="%s" %s>%s</option>',
-                                esc_attr($model_id),
-                                selected($default_model, $model_id, false),
-                                esc_html($model_name)
-                            );
-                        }
-                        ?>
-                    </select>
-                </div>
-
-                <div class="wpvdb-form-group" id="automattic-models" <?php echo $current_provider !== 'automattic' ? 'style="display:none;"' : ''; ?>>
-                    <label for="wpvdb-automattic-model"><?php esc_html_e('Automattic Model', 'wpvdb'); ?></label>
-                    <select id="wpvdb-automattic-model" name="model">
-                        <?php 
-                        $default_model = $settings['automattic']['default_model'] ?? 'automattic-embeddings-001';
-                        $models = [
-                            'automattic-embeddings-001' => 'automattic-embeddings-001'
-                        ];
-                        
-                        foreach ($models as $model_id => $model_name) {
-                            printf(
-                                '<option value="%s" %s>%s</option>',
-                                esc_attr($model_id),
-                                selected($default_model, $model_id, false),
-                                esc_html($model_name)
-                            );
-                        }
-                        ?>
-                    </select>
-                </div>
-                
                 <div class="wpvdb-form-group">
                     <label for="wpvdb-post-type"><?php esc_html_e('Post Type', 'wpvdb'); ?></label>
                     <select id="wpvdb-post-type" name="post_type">
@@ -195,13 +128,35 @@
                 <div class="wpvdb-form-group">
                     <label for="wpvdb-limit"><?php esc_html_e('Limit', 'wpvdb'); ?></label>
                     <input type="number" id="wpvdb-limit" name="limit" min="1" max="100" value="10">
-                    <p class="description">
-                        <?php esc_html_e('Maximum number of posts to process at once', 'wpvdb'); ?>
-                    </p>
+                    <p class="description"><?php esc_html_e('Maximum number of posts to process', 'wpvdb'); ?></p>
+                </div>
+                
+                <div class="wpvdb-form-group">
+                    <label for="wpvdb-provider"><?php esc_html_e('Provider', 'wpvdb'); ?></label>
+                    <select id="wpvdb-provider" name="provider">
+                        <option value="openai"><?php esc_html_e('OpenAI', 'wpvdb'); ?></option>
+                        <option value="automattic"><?php esc_html_e('Automattic AI', 'wpvdb'); ?></option>
+                    </select>
+                </div>
+                
+                <div class="wpvdb-form-group" id="openai-models">
+                    <label for="wpvdb-openai-model"><?php esc_html_e('OpenAI Model', 'wpvdb'); ?></label>
+                    <select id="wpvdb-openai-model" name="openai_model">
+                        <option value="text-embedding-3-small">text-embedding-3-small</option>
+                        <option value="text-embedding-3-large">text-embedding-3-large</option>
+                        <option value="text-embedding-ada-002">text-embedding-ada-002 (Legacy)</option>
+                    </select>
+                </div>
+                
+                <div class="wpvdb-form-group" id="automattic-models" style="display:none;">
+                    <label for="wpvdb-automattic-model"><?php esc_html_e('Automattic Model', 'wpvdb'); ?></label>
+                    <select id="wpvdb-automattic-model" name="automattic_model">
+                        <option value="text-embedding-ada-002">text-embedding-ada-002</option>
+                    </select>
                 </div>
                 
                 <div class="wpvdb-form-actions">
-                    <button type="submit" class="button button-primary"><?php esc_html_e('Start Processing', 'wpvdb'); ?></button>
+                    <button type="submit" class="button button-primary"><?php esc_html_e('Generate Embeddings', 'wpvdb'); ?></button>
                     <button type="button" class="button wpvdb-modal-cancel"><?php esc_html_e('Cancel', 'wpvdb'); ?></button>
                 </div>
             </form>
@@ -343,122 +298,4 @@
     font-style: italic;
     margin: 5px 0 0;
 }
-</style>
-
-<script>
-jQuery(document).ready(function($) {
-    // Toggle model dropdowns based on provider selection
-    $('#wpvdb-provider').on('change', function() {
-        var provider = $(this).val();
-        if (provider === 'openai') {
-            $('#openai-models').show();
-            $('#automattic-models').hide();
-        } else if (provider === 'automattic') {
-            $('#openai-models').hide();
-            $('#automattic-models').show();
-        }
-    });
-    
-    // Bulk Generate Embeddings button click handler
-    $('#wpvdb-bulk-embed').on('click', function() {
-        $('#wpvdb-bulk-embed-modal').show();
-    });
-    
-    // Modal close button handler
-    $('.wpvdb-modal-close, .wpvdb-modal-cancel').on('click', function() {
-        $('.wpvdb-modal').hide();
-    });
-    
-    // Form submission handler
-    $('#wpvdb-bulk-embed-form').on('submit', function(e) {
-        e.preventDefault();
-        
-        // Hide the form and show the results section
-        $(this).hide();
-        $('#wpvdb-bulk-embed-results').show();
-        
-        var postType = $('#wpvdb-post-type').val();
-        var limit = $('#wpvdb-limit').val();
-        var provider = $('#wpvdb-provider').val();
-        var model = provider === 'openai' ? $('#wpvdb-openai-model').val() : $('#wpvdb-automattic-model').val();
-        
-        // Update the status message
-        $('.wpvdb-status-message').text('Starting bulk embedding process...');
-        $('.wpvdb-progress-bar').css('width', '25%');
-        
-        // First get the post IDs to process
-        $.ajax({
-            url: ajaxurl,
-            type: 'POST',
-            data: {
-                action: 'wpvdb_get_posts_for_indexing',
-                nonce: '<?php echo wp_create_nonce('wpvdb-admin'); ?>',
-                post_type: postType,
-                limit: limit
-            },
-            success: function(response) {
-                if (response.success && response.data.posts && response.data.posts.length > 0) {
-                    // Extract post IDs from the posts array
-                    var postIds = response.data.posts.map(function(post) {
-                        return post.id;
-                    });
-                    
-                    // We have post IDs, now start the embedding process
-                    $.ajax({
-                        url: ajaxurl,
-                        type: 'POST',
-                        data: {
-                            action: 'wpvdb_bulk_embed',
-                            nonce: '<?php echo wp_create_nonce('wpvdb-admin'); ?>',
-                            post_ids: postIds,
-                            provider: provider,
-                            model: model
-                        },
-                        success: function(embedResponse) {
-                            if (embedResponse.success) {
-                                // Update progress bar to 100%
-                                $('.wpvdb-progress-bar').css('width', '100%');
-                                $('.wpvdb-status-message').html(embedResponse.data.message);
-                                
-                                // Refresh the page after 2 seconds to show the new embeddings
-                                setTimeout(function() {
-                                    window.location.reload();
-                                }, 2000);
-                            } else {
-                                $('.wpvdb-progress-bar').css('width', '0%');
-                                $('.wpvdb-status-message').html('Error: ' + (embedResponse.data.message || 'Unknown error'));
-                            }
-                        },
-                        error: function() {
-                            $('.wpvdb-progress-bar').css('width', '0%');
-                            $('.wpvdb-status-message').html('An unexpected error occurred during embedding process. Please try again.');
-                        },
-                        beforeSend: function() {
-                            // Update progress bar to 50% when starting the embedding
-                            $('.wpvdb-progress-bar').css('width', '50%');
-                            $('.wpvdb-status-message').text('Processing ' + postIds.length + ' posts...');
-                        }
-                    });
-                } else {
-                    $('.wpvdb-status-message').html('Error: No posts found for the selected criteria.');
-                    
-                    // Show the form again after 3 seconds
-                    setTimeout(function() {
-                        $('#wpvdb-bulk-embed-results').hide();
-                        $('#wpvdb-bulk-embed-form').show();
-                    }, 3000);
-                }
-            },
-            error: function() {
-                $('.wpvdb-status-message').html('An unexpected error occurred while getting posts. Please try again.');
-                
-                // Show the form again after 3 seconds
-                setTimeout(function() {
-                    $('#wpvdb-bulk-embed-results').hide();
-                    $('#wpvdb-bulk-embed-form').show();
-                }, 3000);
-            }
-        });
-    });
-});
-</script> 
+</style> 

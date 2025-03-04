@@ -1,3 +1,24 @@
+<?php
+// Get current settings
+$provider = get_option('wpvdb_provider', 'openai');
+$openai_api_key = get_option('wpvdb_openai_api_key', '');
+$openai_model = get_option('wpvdb_openai_model', 'text-embedding-3-small');
+$automattic_api_key = get_option('wpvdb_automattic_api_key', '');
+$automattic_model = get_option('wpvdb_automattic_model', 'text-embedding-ada-002');
+$auto_embed_post_types = get_option('wpvdb_auto_embed_post_types', []);
+$chunk_size = get_option('wpvdb_chunk_size', 200);
+$chunk_overlap = get_option('wpvdb_chunk_overlap', 20);
+$summarize_chunks = get_option('wpvdb_summarize_chunks', false);
+$include_metadata = get_option('wpvdb_include_metadata', true);
+$include_taxonomies = get_option('wpvdb_include_taxonomies', true);
+$include_acf = get_option('wpvdb_include_acf', false);
+$include_comments = get_option('wpvdb_include_comments', false);
+$include_featured_image = get_option('wpvdb_include_featured_image', false);
+$include_custom_fields = get_option('wpvdb_include_custom_fields', []);
+$exclude_taxonomies = get_option('wpvdb_exclude_taxonomies', []);
+$exclude_custom_fields = get_option('wpvdb_exclude_custom_fields', []);
+?>
+
 <div class="wrap wpvdb-settings">
     <?php if ($has_pending_change): ?>
     <div class="notice notice-warning inline">
@@ -18,330 +39,346 @@
     <h1><?php esc_html_e('Vector Database Settings', 'wpvdb'); ?></h1>
     
     <form method="post" action="options.php" id="wpvdb-settings-form">
-        <?php
-        settings_fields('wpvdb_settings');
-        do_settings_sections('wpvdb_settings');
-        ?>
+        <?php settings_fields('wpvdb_settings'); ?>
         
         <div class="wpvdb-settings-section">
-            <h2><?php esc_html_e('AI Provider', 'wpvdb'); ?></h2>
-            <p class="description"><?php esc_html_e('Select which AI provider to use for embedding generation.', 'wpvdb'); ?></p>
+            <h2><?php esc_html_e('API Configuration', 'wpvdb'); ?></h2>
             
             <table class="form-table">
                 <tr>
-                    <th scope="row"><?php esc_html_e('Provider', 'wpvdb'); ?></th>
+                    <th scope="row">
+                        <label for="wpvdb_provider"><?php esc_html_e('Embedding Provider', 'wpvdb'); ?></label>
+                    </th>
                     <td>
-                        <fieldset>
-                            <label>
-                                <input type="radio" name="wpvdb_settings[provider]" value="openai" <?php checked($provider, 'openai'); ?>>
-                                <?php esc_html_e('OpenAI', 'wpvdb'); ?>
-                            </label>
-                            <br>
-                            <label>
-                                <input type="radio" name="wpvdb_settings[provider]" value="automattic" <?php checked($provider, 'automattic'); ?>>
-                                <?php esc_html_e('Automattic AI', 'wpvdb'); ?>
-                            </label>
-                        </fieldset>
+                        <select name="wpvdb_provider" id="wpvdb_provider">
+                            <option value="openai" <?php selected($provider, 'openai'); ?>><?php esc_html_e('OpenAI', 'wpvdb'); ?></option>
+                            <option value="automattic" <?php selected($provider, 'automattic'); ?>><?php esc_html_e('Automattic AI', 'wpvdb'); ?></option>
+                        </select>
+                        <p class="description"><?php esc_html_e('Select the provider for generating embeddings.', 'wpvdb'); ?></p>
                         
-                        <?php if (!empty($settings['active_provider'])): ?>
-                        <p class="description provider-info">
-                            <?php 
-                            $active_provider = $settings['active_provider'] === 'openai' ? 'OpenAI' : 'Automattic AI';
-                            $active_model = $settings['active_model'];
-                            printf(
-                                __('Active provider: <strong>%1$s</strong> / <code>%2$s</code>', 'wpvdb'),
-                                esc_html($active_provider),
-                                esc_html($active_model)
-                            );
-                            ?>
+                        <input type="hidden" id="wpvdb_current_provider" value="<?php echo esc_attr($provider); ?>">
+                        <input type="hidden" id="wpvdb_current_model" value="<?php echo esc_attr($provider === 'openai' ? $openai_model : $automattic_model); ?>">
+                    </td>
+                </tr>
+                
+                <tr id="openai_api_key_field" class="api-key-field">
+                    <th scope="row">
+                        <label for="wpvdb_openai_api_key"><?php esc_html_e('OpenAI API Key', 'wpvdb'); ?></label>
+                    </th>
+                    <td>
+                        <input type="password" 
+                               name="wpvdb_openai_api_key" 
+                               id="wpvdb_openai_api_key" 
+                               value="<?php echo esc_attr($openai_api_key); ?>" 
+                               class="regular-text">
+                        <p class="description">
+                            <?php esc_html_e('Enter your OpenAI API key. You can get one from', 'wpvdb'); ?> 
+                            <a href="https://platform.openai.com/api-keys" target="_blank">https://platform.openai.com/api-keys</a>
                         </p>
-                        <?php endif; ?>
+                    </td>
+                </tr>
+                
+                <tr id="openai_model_field" class="model-field">
+                    <th scope="row">
+                        <label for="wpvdb_openai_model"><?php esc_html_e('OpenAI Embedding Model', 'wpvdb'); ?></label>
+                    </th>
+                    <td>
+                        <select name="wpvdb_openai_model" id="wpvdb_openai_model">
+                            <option value="text-embedding-3-small" <?php selected($openai_model, 'text-embedding-3-small'); ?>>text-embedding-3-small (1536 dimensions)</option>
+                            <option value="text-embedding-3-large" <?php selected($openai_model, 'text-embedding-3-large'); ?>>text-embedding-3-large (3072 dimensions)</option>
+                            <option value="text-embedding-ada-002" <?php selected($openai_model, 'text-embedding-ada-002'); ?>>text-embedding-ada-002 (1536 dimensions, Legacy)</option>
+                        </select>
+                        <p class="description">
+                            <?php esc_html_e('Select the OpenAI model to use for generating embeddings.', 'wpvdb'); ?>
+                            <a href="https://platform.openai.com/docs/guides/embeddings" target="_blank"><?php esc_html_e('Learn more', 'wpvdb'); ?></a>
+                        </p>
+                    </td>
+                </tr>
+                
+                <tr id="automattic_api_key_field" class="api-key-field">
+                    <th scope="row">
+                        <label for="wpvdb_automattic_api_key"><?php esc_html_e('Automattic AI API Key', 'wpvdb'); ?></label>
+                    </th>
+                    <td>
+                        <input type="password" 
+                               name="wpvdb_automattic_api_key" 
+                               id="wpvdb_automattic_api_key" 
+                               value="<?php echo esc_attr($automattic_api_key); ?>" 
+                               class="regular-text">
+                        <p class="description">
+                            <?php esc_html_e('Enter your Automattic AI API key or', 'wpvdb'); ?> 
+                            <a href="<?php echo esc_url(admin_url('admin.php?page=wpvdb-automattic-connect')); ?>"><?php esc_html_e('connect automatically', 'wpvdb'); ?></a>
+                        </p>
+                    </td>
+                </tr>
+                
+                <tr id="automattic_model_field" class="model-field">
+                    <th scope="row">
+                        <label for="wpvdb_automattic_model"><?php esc_html_e('Automattic AI Embedding Model', 'wpvdb'); ?></label>
+                    </th>
+                    <td>
+                        <select name="wpvdb_automattic_model" id="wpvdb_automattic_model">
+                            <option value="text-embedding-ada-002" <?php selected($automattic_model, 'text-embedding-ada-002'); ?>>text-embedding-ada-002 (1536 dimensions)</option>
+                        </select>
+                        <p class="description">
+                            <?php esc_html_e('Select the Automattic AI model to use for generating embeddings.', 'wpvdb'); ?>
+                        </p>
                     </td>
                 </tr>
             </table>
         </div>
         
-        <?php
-        // Define available sections
-        $sections = [
-            'provider' => __('Provider Settings', 'wpvdb'),
-            'content' => __('Content Settings', 'wpvdb'),
-            'auto-embed' => __('Auto-Embedding', 'wpvdb'),
-        ];
-        
-        // Default to first section if none specified
-        if (empty($section)) {
-            $section = 'provider';
-        }
-        
-        // Generate the section navigation
-        echo '<div class="wpvdb-section-nav">';
-        $i = 0;
-        foreach ($sections as $section_id => $section_label) {
-            if ($i > 0) {
-                echo '<span class="divider">|</span>';
-            }
+        <div class="wpvdb-settings-section">
+            <h2><?php esc_html_e('Content Settings', 'wpvdb'); ?></h2>
             
-            $url = admin_url(sprintf(
-                'admin.php?page=wpvdb-settings&section=%s',
-                esc_attr($section_id)
-            ));
-            
-            $class = ($section === $section_id) ? 'current' : '';
-            printf(
-                '<a href="%s" class="%s">%s</a>',
-                esc_url($url),
-                esc_attr($class),
-                esc_html($section_label)
-            );
-            
-            $i++;
-        }
-        echo '</div>';
-        ?>
-        
-        <div class="wpvdb-tab-content">
-            <?php if ($section === 'provider'): ?>
-                <!-- Provider Settings Section -->
-                <div class="provider-panel" id="openai-panel" <?php echo $provider !== 'openai' ? 'style="display:none;"' : ''; ?>>
-                    <h3><?php esc_html_e('OpenAI Settings', 'wpvdb'); ?></h3>
-                    <table class="form-table">
-                        <tr>
-                            <th scope="row">
-                                <label for="wpvdb_openai_api_key"><?php esc_html_e('API Key', 'wpvdb'); ?></label>
-                            </th>
-                            <td>
-                                <?php if (defined('WPVDB_OPENAI_API_KEY')): ?>
-                                    <p>
-                                        <span class="dashicons dashicons-yes-alt" style="color:green;"></span>
-                                        <strong><?php esc_html_e('API key is defined in wp-config.php as WPVDB_OPENAI_API_KEY', 'wpvdb'); ?></strong>
-                                    </p>
-                                    <p class="description">
-                                        <?php esc_html_e('The constant definition will override any value entered here.', 'wpvdb'); ?>
-                                    </p>
-                                    <input type="hidden" 
-                                        name="wpvdb_settings[openai][api_key]" 
-                                        value="<?php echo esc_attr($settings['openai']['api_key'] ?? ''); ?>">
-                                <?php else: ?>
-                                    <input type="password" 
-                                        id="wpvdb_openai_api_key" 
-                                        name="wpvdb_settings[openai][api_key]" 
-                                        value="<?php echo esc_attr($settings['openai']['api_key'] ?? ''); ?>" 
-                                        class="regular-text">
-                                    <p class="description">
-                                        <?php esc_html_e('Enter your OpenAI API key to enable embedding generation', 'wpvdb'); ?>
-                                    </p>
-                                    <p class="description">
-                                        <?php esc_html_e('For more security, you can define this in wp-config.php instead:', 'wpvdb'); ?>
-                                        <code>define('WPVDB_OPENAI_API_KEY', 'your-api-key-here');</code>
-                                    </p>
-                                <?php endif; ?>
-                            </td>
-                        </tr>
-                        <tr>
-                            <th scope="row">
-                                <label for="wpvdb_openai_model"><?php esc_html_e('Default Embedding Model', 'wpvdb'); ?></label>
-                            </th>
-                            <td>
-                                <select id="wpvdb_openai_model" name="wpvdb_settings[openai][default_model]">
-                                    <?php 
-                                    $default_model = $settings['openai']['default_model'] ?? 'text-embedding-3-small';
-                                    $models = [
-                                        'text-embedding-3-small' => 'text-embedding-3-small (1536 dimensions)',
-                                        'text-embedding-3-large' => 'text-embedding-3-large (3072 dimensions)',
-                                        'text-embedding-ada-002' => 'text-embedding-ada-002 (Legacy)'
-                                    ];
-                                    
-                                    foreach ($models as $model_id => $model_name) {
-                                        printf(
-                                            '<option value="%s" %s>%s</option>',
-                                            esc_attr($model_id),
-                                            selected($default_model, $model_id, false),
-                                            esc_html($model_name)
-                                        );
-                                    }
-                                    ?>
-                                </select>
-                            </td>
-                        </tr>
-                    </table>
-                </div>
-                
-                <div class="provider-panel" id="automattic-panel" <?php echo $provider !== 'automattic' ? 'style="display:none;"' : ''; ?>>
-                    <h3><?php esc_html_e('Automattic AI Settings', 'wpvdb'); ?></h3>
-                    
-                    <?php if (!empty($settings['automattic']['api_key'])): ?>
-                    <div class="wpvdb-connection-info">
-                        <div class="connection-status connected">
-                            <span class="dashicons dashicons-yes-alt"></span>
-                            <?php esc_html_e('Connected to Automattic AI', 'wpvdb'); ?>
-                        </div>
-                        <div class="connection-actions">
-                            <button type="button" id="wpvdb-disconnect-automattic" class="button">
-                                <?php esc_html_e('Disconnect', 'wpvdb'); ?>
-                            </button>
-                        </div>
-                    </div>
-                    <?php else: ?>
-                    <div class="wpvdb-connection-info">
-                        <div class="connection-status disconnected">
-                            <span class="dashicons dashicons-no"></span>
-                            <?php esc_html_e('Not connected', 'wpvdb'); ?>
-                        </div>
-                        <div class="connection-actions">
-                            <a href="<?php echo esc_url(admin_url('admin.php?page=wpvdb-automattic-connect')); ?>" class="button button-primary">
-                                <?php esc_html_e('Connect to Automattic AI', 'wpvdb'); ?>
-                            </a>
-                        </div>
-                    </div>
-                    <?php endif; ?>
-                    
-                    <table class="form-table">
-                        <tr>
-                            <th scope="row">
-                                <label for="wpvdb_automattic_api_key"><?php esc_html_e('API Key (Hidden)', 'wpvdb'); ?></label>
-                            </th>
-                            <td>
-                                <?php if (defined('WPVDB_AUTOMATTIC_API_KEY')): ?>
-                                    <p>
-                                        <span class="dashicons dashicons-yes-alt" style="color:green;"></span>
-                                        <strong><?php esc_html_e('API key is defined in wp-config.php as WPVDB_AUTOMATTIC_API_KEY', 'wpvdb'); ?></strong>
-                                    </p>
-                                    <p class="description">
-                                        <?php esc_html_e('The constant definition will override any value entered here.', 'wpvdb'); ?>
-                                    </p>
-                                    <input type="hidden" 
-                                        name="wpvdb_settings[automattic][api_key]" 
-                                        value="<?php echo esc_attr($settings['automattic']['api_key'] ?? ''); ?>">
-                                <?php else: ?>
-                                    <input type="hidden" 
-                                        id="wpvdb_automattic_api_key" 
-                                        name="wpvdb_settings[automattic][api_key]" 
-                                        value="<?php echo esc_attr($settings['automattic']['api_key'] ?? ''); ?>">
-                                    <p class="description">
-                                        <?php esc_html_e('API key is securely stored', 'wpvdb'); ?>
-                                    </p>
-                                    <p class="description">
-                                        <?php esc_html_e('For more security, you can define this in wp-config.php instead:', 'wpvdb'); ?>
-                                        <code>define('WPVDB_AUTOMATTIC_API_KEY', 'your-api-key-here');</code>
-                                    </p>
-                                <?php endif; ?>
-                            </td>
-                        </tr>
-                        <tr>
-                            <th scope="row">
-                                <label for="wpvdb_automattic_model"><?php esc_html_e('Default Embedding Model', 'wpvdb'); ?></label>
-                            </th>
-                            <td>
-                                <select id="wpvdb_automattic_model" name="wpvdb_settings[automattic][default_model]">
-                                    <?php 
-                                    $default_model = $settings['automattic']['default_model'] ?? 'automattic-embeddings-001';
-                                    $models = [
-                                        'automattic-embeddings-001' => 'automattic-embeddings-001'
-                                    ];
-                                    
-                                    foreach ($models as $model_id => $model_name) {
-                                        printf(
-                                            '<option value="%s" %s>%s</option>',
-                                            esc_attr($model_id),
-                                            selected($default_model, $model_id, false),
-                                            esc_html($model_name)
-                                        );
-                                    }
-                                    ?>
-                                </select>
-                            </td>
-                        </tr>
-                    </table>
-                </div>
-            <?php elseif ($section === 'content'): ?>
-                <!-- Content Settings Section -->
-                <h3><?php esc_html_e('Content Processing Settings', 'wpvdb'); ?></h3>
-                <table class="form-table">
-                    <tr>
-                        <th scope="row">
-                            <label for="wpvdb_chunk_size"><?php esc_html_e('Chunk Size (words)', 'wpvdb'); ?></label>
-                        </th>
-                        <td>
-                            <input type="number" 
-                                id="wpvdb_chunk_size" 
-                                name="wpvdb_settings[chunk_size]" 
-                                value="<?php echo esc_attr($settings['chunk_size'] ?? 1000); ?>" 
-                                class="small-text">
-                            <p class="description">
-                                <?php esc_html_e('Maximum number of words per content chunk. Recommended: 1000 for most embedding models.', 'wpvdb'); ?>
-                            </p>
-                        </td>
-                    </tr>
-                    <tr>
-                        <th scope="row">
-                            <label for="wpvdb_chunk_overlap"><?php esc_html_e('Chunk Overlap (words)', 'wpvdb'); ?></label>
-                        </th>
-                        <td>
-                            <input type="number" 
-                                id="wpvdb_chunk_overlap" 
-                                name="wpvdb_settings[chunk_overlap]" 
-                                value="<?php echo esc_attr($settings['chunk_overlap'] ?? 200); ?>" 
-                                class="small-text">
-                            <p class="description">
-                                <?php esc_html_e('Number of words to overlap between chunks. Recommended: 200 (20% of chunk size).', 'wpvdb'); ?>
-                            </p>
-                        </td>
-                    </tr>
-                </table>
-            <?php elseif ($section === 'auto-embed'): ?>
-                <!-- Auto-Embedding Section -->
-                <h3><?php esc_html_e('Auto-Embedding', 'wpvdb'); ?></h3>
-                <table class="form-table">
-                    <tr>
-                        <th scope="row"><?php esc_html_e('Enable Auto-Embedding', 'wpvdb'); ?></th>
-                        <td>
-                            <fieldset>
-                                <legend class="screen-reader-text">
-                                    <span><?php esc_html_e('Enable Auto-Embedding', 'wpvdb'); ?></span>
-                                </legend>
-                                <label for="wpvdb_auto_embed">
-                                    <input type="checkbox" 
-                                        id="wpvdb_auto_embed" 
-                                        name="wpvdb_settings[auto_embed]" 
-                                        value="1" 
-                                        <?php checked($settings['auto_embed'] ?? false); ?>>
-                                    <?php esc_html_e('Automatically generate embeddings when content is published or updated', 'wpvdb'); ?>
+            <table class="form-table">
+                <tr>
+                    <th scope="row">
+                        <label><?php esc_html_e('Auto-Embed Post Types', 'wpvdb'); ?></label>
+                    </th>
+                    <td>
+                        <fieldset>
+                            <legend class="screen-reader-text"><?php esc_html_e('Auto-Embed Post Types', 'wpvdb'); ?></legend>
+                            
+                            <p>
+                                <label>
+                                    <input type="checkbox" id="wpvdb_auto_embed_toggle_all">
+                                    <strong><?php esc_html_e('Toggle All', 'wpvdb'); ?></strong>
                                 </label>
-                            </fieldset>
-                        </td>
-                    </tr>
-                    <tr>
-                        <th scope="row"><?php esc_html_e('Post Types', 'wpvdb'); ?></th>
-                        <td>
-                            <fieldset>
-                                <legend class="screen-reader-text">
-                                    <span><?php esc_html_e('Post Types', 'wpvdb'); ?></span>
-                                </legend>
-                                <?php 
-                                $enabled_post_types = $settings['post_types'] ?? ['post', 'page'];
-                                $post_types = get_post_types(['public' => true], 'objects');
-                                
-                                foreach ($post_types as $post_type) {
-                                    printf(
-                                        '<label><input type="checkbox" name="wpvdb_settings[post_types][]" value="%s" %s> %s</label><br>',
-                                        esc_attr($post_type->name),
-                                        in_array($post_type->name, $enabled_post_types) ? 'checked' : '',
-                                        esc_html($post_type->label)
-                                    );
-                                }
-                                ?>
-                            </fieldset>
-                            <p class="description">
-                                <?php esc_html_e('Select which post types should be automatically embedded', 'wpvdb'); ?>
                             </p>
-                        </td>
-                    </tr>
-                </table>
-            <?php endif; ?>
+                            
+                            <?php
+                            $post_types = get_post_types(['public' => true], 'objects');
+                            foreach ($post_types as $post_type) :
+                                $checked = in_array($post_type->name, $auto_embed_post_types) ? 'checked' : '';
+                            ?>
+                                <p>
+                                    <label>
+                                        <input type="checkbox" 
+                                               name="wpvdb_auto_embed_post_types[]" 
+                                               value="<?php echo esc_attr($post_type->name); ?>" 
+                                               <?php echo $checked; ?>
+                                               class="wpvdb-post-type-checkbox">
+                                        <?php echo esc_html($post_type->label); ?>
+                                    </label>
+                                </p>
+                            <?php endforeach; ?>
+                            
+                            <p class="description">
+                                <?php esc_html_e('Select which post types should automatically generate embeddings when published or updated.', 'wpvdb'); ?>
+                            </p>
+                        </fieldset>
+                    </td>
+                </tr>
+                
+                <tr>
+                    <th scope="row">
+                        <label for="wpvdb_chunk_size"><?php esc_html_e('Chunk Size (words)', 'wpvdb'); ?></label>
+                    </th>
+                    <td>
+                        <input type="number" 
+                               name="wpvdb_chunk_size" 
+                               id="wpvdb_chunk_size" 
+                               value="<?php echo esc_attr($chunk_size); ?>" 
+                               min="50" 
+                               max="1000" 
+                               step="10" 
+                               class="small-text">
+                        <p class="description">
+                            <?php esc_html_e('The approximate number of words per chunk. Smaller chunks are more precise but create more embeddings.', 'wpvdb'); ?>
+                        </p>
+                    </td>
+                </tr>
+                
+                <tr>
+                    <th scope="row">
+                        <label for="wpvdb_chunk_overlap"><?php esc_html_e('Chunk Overlap (%)', 'wpvdb'); ?></label>
+                    </th>
+                    <td>
+                        <input type="number" 
+                               name="wpvdb_chunk_overlap" 
+                               id="wpvdb_chunk_overlap" 
+                               value="<?php echo esc_attr($chunk_overlap); ?>" 
+                               min="0" 
+                               max="50" 
+                               class="small-text">
+                        <p class="description">
+                            <?php esc_html_e('The percentage of overlap between consecutive chunks. Higher overlap helps maintain context between chunks.', 'wpvdb'); ?>
+                        </p>
+                    </td>
+                </tr>
+                
+                <tr>
+                    <th scope="row">
+                        <label for="wpvdb_summarize_chunks"><?php esc_html_e('Summarize Chunks', 'wpvdb'); ?></label>
+                    </th>
+                    <td>
+                        <label>
+                            <input type="checkbox" 
+                                   name="wpvdb_summarize_chunks" 
+                                   id="wpvdb_summarize_chunks" 
+                                   value="1" 
+                                   <?php checked($summarize_chunks, true); ?>>
+                            <?php esc_html_e('Generate summaries for each chunk', 'wpvdb'); ?>
+                        </label>
+                        <p class="description">
+                            <?php esc_html_e('When enabled, a summary will be generated for each chunk to improve retrieval quality. This requires additional API calls.', 'wpvdb'); ?>
+                        </p>
+                    </td>
+                </tr>
+            </table>
         </div>
         
-        <?php submit_button(); ?>
+        <div class="wpvdb-settings-section">
+            <h2><?php esc_html_e('Content Inclusion Settings', 'wpvdb'); ?></h2>
+            
+            <table class="form-table">
+                <tr>
+                    <th scope="row">
+                        <label for="wpvdb_include_metadata"><?php esc_html_e('Include Post Metadata', 'wpvdb'); ?></label>
+                    </th>
+                    <td>
+                        <label>
+                            <input type="checkbox" 
+                                   name="wpvdb_include_metadata" 
+                                   id="wpvdb_include_metadata" 
+                                   value="1" 
+                                   <?php checked($include_metadata, true); ?>>
+                            <?php esc_html_e('Include title, excerpt, and author information', 'wpvdb'); ?>
+                        </label>
+                        <p class="description">
+                            <?php esc_html_e('When enabled, post title, excerpt, and author information will be included in the content for embedding.', 'wpvdb'); ?>
+                        </p>
+                    </td>
+                </tr>
+                
+                <tr>
+                    <th scope="row">
+                        <label for="wpvdb_include_taxonomies"><?php esc_html_e('Include Taxonomies', 'wpvdb'); ?></label>
+                    </th>
+                    <td>
+                        <label>
+                            <input type="checkbox" 
+                                   name="wpvdb_include_taxonomies" 
+                                   id="wpvdb_include_taxonomies" 
+                                   value="1" 
+                                   <?php checked($include_taxonomies, true); ?>>
+                            <?php esc_html_e('Include categories, tags, and custom taxonomies', 'wpvdb'); ?>
+                        </label>
+                        <p class="description">
+                            <?php esc_html_e('When enabled, categories, tags, and custom taxonomies will be included in the content for embedding.', 'wpvdb'); ?>
+                        </p>
+                    </td>
+                </tr>
+                
+                <tr>
+                    <th scope="row">
+                        <label for="wpvdb_exclude_taxonomies"><?php esc_html_e('Exclude Specific Taxonomies', 'wpvdb'); ?></label>
+                    </th>
+                    <td>
+                        <input type="text" 
+                               name="wpvdb_exclude_taxonomies" 
+                               id="wpvdb_exclude_taxonomies" 
+                               value="<?php echo esc_attr(implode(', ', $exclude_taxonomies)); ?>" 
+                               class="regular-text">
+                        <p class="description">
+                            <?php esc_html_e('Enter taxonomy names to exclude, separated by commas (e.g., "post_tag, product_cat").', 'wpvdb'); ?>
+                        </p>
+                    </td>
+                </tr>
+                
+                <tr>
+                    <th scope="row">
+                        <label for="wpvdb_include_acf"><?php esc_html_e('Include ACF Fields', 'wpvdb'); ?></label>
+                    </th>
+                    <td>
+                        <label>
+                            <input type="checkbox" 
+                                   name="wpvdb_include_acf" 
+                                   id="wpvdb_include_acf" 
+                                   value="1" 
+                                   <?php checked($include_acf, true); ?>>
+                            <?php esc_html_e('Include Advanced Custom Fields content', 'wpvdb'); ?>
+                        </label>
+                        <p class="description">
+                            <?php esc_html_e('When enabled and ACF is active, text-based ACF fields will be included in the content for embedding.', 'wpvdb'); ?>
+                        </p>
+                    </td>
+                </tr>
+                
+                <tr>
+                    <th scope="row">
+                        <label for="wpvdb_include_comments"><?php esc_html_e('Include Comments', 'wpvdb'); ?></label>
+                    </th>
+                    <td>
+                        <label>
+                            <input type="checkbox" 
+                                   name="wpvdb_include_comments" 
+                                   id="wpvdb_include_comments" 
+                                   value="1" 
+                                   <?php checked($include_comments, true); ?>>
+                            <?php esc_html_e('Include approved comments', 'wpvdb'); ?>
+                        </label>
+                        <p class="description">
+                            <?php esc_html_e('When enabled, approved comments will be included in the content for embedding.', 'wpvdb'); ?>
+                        </p>
+                    </td>
+                </tr>
+                
+                <tr>
+                    <th scope="row">
+                        <label for="wpvdb_include_featured_image"><?php esc_html_e('Include Featured Image Alt Text', 'wpvdb'); ?></label>
+                    </th>
+                    <td>
+                        <label>
+                            <input type="checkbox" 
+                                   name="wpvdb_include_featured_image" 
+                                   id="wpvdb_include_featured_image" 
+                                   value="1" 
+                                   <?php checked($include_featured_image, true); ?>>
+                            <?php esc_html_e('Include featured image alt text and caption', 'wpvdb'); ?>
+                        </label>
+                        <p class="description">
+                            <?php esc_html_e('When enabled, featured image alt text and caption will be included in the content for embedding.', 'wpvdb'); ?>
+                        </p>
+                    </td>
+                </tr>
+                
+                <tr>
+                    <th scope="row">
+                        <label for="wpvdb_include_custom_fields"><?php esc_html_e('Include Specific Custom Fields', 'wpvdb'); ?></label>
+                    </th>
+                    <td>
+                        <input type="text" 
+                               name="wpvdb_include_custom_fields" 
+                               id="wpvdb_include_custom_fields" 
+                               value="<?php echo esc_attr(implode(', ', $include_custom_fields)); ?>" 
+                               class="regular-text">
+                        <p class="description">
+                            <?php esc_html_e('Enter custom field names to include, separated by commas (e.g., "custom_intro, product_description").', 'wpvdb'); ?>
+                        </p>
+                    </td>
+                </tr>
+                
+                <tr>
+                    <th scope="row">
+                        <label for="wpvdb_exclude_custom_fields"><?php esc_html_e('Exclude Specific Custom Fields', 'wpvdb'); ?></label>
+                    </th>
+                    <td>
+                        <input type="text" 
+                               name="wpvdb_exclude_custom_fields" 
+                               id="wpvdb_exclude_custom_fields" 
+                               value="<?php echo esc_attr(implode(', ', $exclude_custom_fields)); ?>" 
+                               class="regular-text">
+                        <p class="description">
+                            <?php esc_html_e('Enter custom field names to exclude, separated by commas (e.g., "_edit_lock, _edit_last").', 'wpvdb'); ?>
+                        </p>
+                    </td>
+                </tr>
+            </table>
+        </div>
+        
+        <?php submit_button(__('Save Settings', 'wpvdb')); ?>
     </form>
 </div>
 
@@ -443,75 +480,4 @@
 .connection-actions {
     margin-top: 10px;
 }
-</style>
-
-<script>
-jQuery(document).ready(function($) {
-    // Toggle provider panels based on selection
-    $('input[name="wpvdb_settings[provider]"]').on('change', function() {
-        var provider = $(this).val();
-        $('.provider-panel').hide();
-        $('#' + provider + '-panel').show();
-    });
-    
-    // Disconnect Automattic AI
-    $('#wpvdb-disconnect-automattic').on('click', function() {
-        if (confirm('<?php esc_attr_e('Are you sure you want to disconnect your Automattic AI account? This will disable embedding features until you reconnect.', 'wpvdb'); ?>')) {
-            // Clear the API key and submit the form
-            $('#wpvdb_automattic_api_key').val('');
-            $('#wpvdb-settings-form').submit();
-        }
-    });
-    
-    // Validate provider change
-    $('#wpvdb-settings-form').on('submit', function(e) {
-        var newProvider = $('input[name="wpvdb_settings[provider]"]:checked').val();
-        var newModel = '';
-        
-        if (newProvider === 'openai') {
-            newModel = $('#wpvdb_openai_model').val();
-        } else if (newProvider === 'automattic') {
-            newModel = $('#wpvdb_automattic_model').val();
-        }
-        
-        <?php if (!empty($settings['active_provider']) && !empty($settings['active_model'])): ?>
-        // We have active settings, check if they're changing
-        var activeProvider = '<?php echo esc_js($settings['active_provider']); ?>';
-        var activeModel = '<?php echo esc_js($settings['active_model']); ?>';
-        
-        if (newProvider !== activeProvider || 
-            (newProvider === 'openai' && newModel !== activeModel) ||
-            (newProvider === 'automattic' && newModel !== activeModel)) {
-            
-            // Check if we need confirmation
-            $.ajax({
-                url: wpvdb.ajax_url,
-                method: 'POST',
-                data: {
-                    action: 'wpvdb_validate_provider_change',
-                    nonce: wpvdb.nonce
-                },
-                success: function(response) {
-                    if (response.success && response.data.requires_reindex) {
-                        if (confirm(wpvdb.i18n.confirm_provider_change)) {
-                            // User confirmed, proceed with the form submission
-                            $('#wpvdb-settings-form')[0].submit();
-                        }
-                    } else {
-                        // No need for confirmation, submit the form
-                        $('#wpvdb-settings-form')[0].submit();
-                    }
-                },
-                error: function() {
-                    // Error occurred, submit the form anyway
-                    $('#wpvdb-settings-form')[0].submit();
-                }
-            });
-            
-            // Prevent form submission until we get the AJAX response
-            e.preventDefault();
-        }
-        <?php endif; ?>
-    });
-});
-</script> 
+</style> 

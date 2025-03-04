@@ -321,21 +321,190 @@
                 
                 <div class="wpvdb-tool-card">
                     <h3><?php esc_html_e('Re-Create Tables', 'wpvdb'); ?></h3>
-                    <p><?php esc_html_e('Re-create the database tables needed for vector embeddings.', 'wpvdb'); ?></p>
-                    <a href="<?php echo esc_url(wp_nonce_url(admin_url('admin.php?page=wpvdb-status&action=recreate_tables'), 'wpvdb_recreate_tables')); ?>" class="button">
-                        <?php esc_html_e('Re-Create Tables', 'wpvdb'); ?>
-                    </a>
+                    <p>
+                        <?php 
+                        $has_vector = \WPVDB\Database::has_native_vector_support();
+                        if ($has_vector) {
+                            esc_html_e('Re-create the database tables with native vector support.', 'wpvdb');
+                            echo ' <span class="dashicons dashicons-yes" style="color:green;"></span>';
+                        } else {
+                            esc_html_e('Re-create the database tables without vector support (fallback tables).', 'wpvdb');
+                            echo ' <span class="dashicons dashicons-warning" style="color:orange;"></span>';
+                        }
+                        ?>
+                    </p>
+                    <form method="post" action="">
+                        <?php wp_nonce_field('wpvdb_recreate_tables'); ?>
+                        <input type="hidden" name="wpvdb_action" value="recreate_tables">
+                        <button type="submit" class="button button-secondary">
+                            <?php esc_html_e('Force recreate tables', 'wpvdb'); ?>
+                        </button>
+                    </form>
                 </div>
                 
-                <div class="wpvdb-tool-card danger">
+                <div class="wpvdb-tool-card">
                     <h3><?php esc_html_e('Clear All Embeddings', 'wpvdb'); ?></h3>
-                    <p><?php esc_html_e('Delete all embeddings from the database. This action cannot be undone!', 'wpvdb'); ?></p>
-                    <a href="<?php echo esc_url(wp_nonce_url(admin_url('admin.php?page=wpvdb-status&action=clear_embeddings'), 'wpvdb_clear_embeddings')); ?>" class="button button-primary" onclick="return confirm('<?php esc_attr_e('Are you sure you want to delete all embeddings? This action cannot be undone!', 'wpvdb'); ?>');">
-                        <?php esc_html_e('Clear All', 'wpvdb'); ?>
-                    </a>
+                    <p><?php esc_html_e('Delete all saved embeddings from the database. This cannot be undone!', 'wpvdb'); ?></p>
+                    <form method="post" action="">
+                        <?php wp_nonce_field('wpvdb_clear_embeddings'); ?>
+                        <input type="hidden" name="wpvdb_action" value="clear_embeddings">
+                        <button type="submit" class="button button-secondary" style="color:red;" onclick="return confirm('<?php esc_attr_e('Are you sure you want to delete all saved embeddings? This cannot be undone!', 'wpvdb'); ?>')">
+                            <?php esc_html_e('Clear All Embeddings', 'wpvdb'); ?>
+                        </button>
+                    </form>
+                </div>
+                
+                <div class="wpvdb-tool-card">
+                    <h3><?php esc_html_e('Test Embedding Generation', 'wpvdb'); ?></h3>
+                    <p><?php esc_html_e('Test embedding generation with your configured provider.', 'wpvdb'); ?></p>
+                    <button type="button" id="wpvdb-test-embedding-button" class="button button-primary">
+                        <?php esc_html_e('Test Embedding', 'wpvdb'); ?>
+                    </button>
+                </div>
+                
+                <div class="wpvdb-tool-card">
+                    <h3><?php esc_html_e('Database Diagnostics', 'wpvdb'); ?></h3>
+                    <p><?php esc_html_e('Run diagnostics on the database to check for vector support and troubleshoot issues.', 'wpvdb'); ?></p>
+                    
+                    <form method="post" action="">
+                        <?php wp_nonce_field('wpvdb_diagnostics_action', 'wpvdb_diagnostics_nonce'); ?>
+                        <input type="hidden" name="wpvdb_action" value="run_diagnostics">
+                        <button type="submit" class="button button-primary"><?php esc_html_e('Run Diagnostics', 'wpvdb'); ?></button>
+                    </form>
+                    
+                    <?php 
+                    // Display diagnostic results if available
+                    if (isset($_GET['diagnostics']) && $_GET['diagnostics'] === 'run') {
+                        $diagnostics = \WPVDB\Database::run_diagnostics(); 
+                        ?>
+                        <div class="wpvdb-diagnostics-results" style="margin-top: 20px; padding: 15px; background: #f8f8f8; border-left: 4px solid <?php echo $diagnostics['success'] ? '#46b450' : '#dc3232'; ?>;">
+                            <h4><?php esc_html_e('Diagnostic Results', 'wpvdb'); ?></h4>
+                            
+                            <?php if ($diagnostics['success']): ?>
+                                <p style="color: #46b450;"><strong><?php esc_html_e('✓ All tests passed successfully!', 'wpvdb'); ?></strong></p>
+                            <?php else: ?>
+                                <p style="color: #dc3232;"><strong><?php esc_html_e('✗ Some tests failed. See details below.', 'wpvdb'); ?></strong></p>
+                            <?php endif; ?>
+                            
+                            <h5><?php esc_html_e('Messages:', 'wpvdb'); ?></h5>
+                            <ul style="background: #fff; padding: 10px; border: 1px solid #ddd;">
+                                <?php foreach ($diagnostics['messages'] as $message): ?>
+                                    <li><?php echo esc_html($message); ?></li>
+                                <?php endforeach; ?>
+                            </ul>
+                            
+                            <?php if (!empty($diagnostics['errors'])): ?>
+                                <h5><?php esc_html_e('Errors:', 'wpvdb'); ?></h5>
+                                <ul style="background: #fef7f7; padding: 10px; border: 1px solid #dc3232;">
+                                    <?php foreach ($diagnostics['errors'] as $error): ?>
+                                        <li><?php echo esc_html($error); ?></li>
+                                    <?php endforeach; ?>
+                                </ul>
+                            <?php endif; ?>
+                            
+                            <p><em><?php esc_html_e('Check the PHP error log for more detailed debugging information.', 'wpvdb'); ?></em></p>
+                        </div>
+                        <?php
+                    }
+                    ?>
                 </div>
             </div>
         <?php endif; ?>
+    </div>
+    
+    <!-- Test Embedding Modal -->
+    <div id="wpvdb-test-embedding-modal" class="wpvdb-modal" style="display:none;">
+        <div class="wpvdb-modal-content">
+            <span class="wpvdb-modal-close">&times;</span>
+            <h2><?php esc_html_e('Test Embedding Generation', 'wpvdb'); ?></h2>
+            
+            <form id="wpvdb-test-embedding-form">
+                <div class="wpvdb-form-group">
+                    <label for="wpvdb-test-provider"><?php esc_html_e('AI Provider', 'wpvdb'); ?></label>
+                    <select id="wpvdb-test-provider" name="provider">
+                        <?php 
+                        $settings = get_option('wpvdb_settings');
+                        $current_provider = $settings['provider'] ?? 'openai';
+                        $providers = [
+                            'openai' => __('OpenAI', 'wpvdb'),
+                            'automattic' => __('Automattic AI', 'wpvdb'),
+                        ];
+                        
+                        foreach ($providers as $id => $name) {
+                            printf(
+                                '<option value="%s" %s>%s</option>',
+                                esc_attr($id),
+                                selected($current_provider, $id, false),
+                                esc_html($name)
+                            );
+                        }
+                        ?>
+                    </select>
+                </div>
+
+                <div class="wpvdb-form-group" id="test-openai-models" <?php echo $current_provider !== 'openai' ? 'style="display:none;"' : ''; ?>>
+                    <label for="wpvdb-test-openai-model"><?php esc_html_e('OpenAI Model', 'wpvdb'); ?></label>
+                    <select id="wpvdb-test-openai-model" name="model">
+                        <?php 
+                        $default_model = $settings['openai']['default_model'] ?? 'text-embedding-3-small';
+                        $models = [
+                            'text-embedding-3-small' => 'text-embedding-3-small (Recommended)',
+                            'text-embedding-3-large' => 'text-embedding-3-large (Higher Accuracy)',
+                            'text-embedding-ada-002' => 'text-embedding-ada-002 (Legacy)'
+                        ];
+                        
+                        foreach ($models as $model_id => $model_name) {
+                            printf(
+                                '<option value="%s" %s>%s</option>',
+                                esc_attr($model_id),
+                                selected($default_model, $model_id, false),
+                                esc_html($model_name)
+                            );
+                        }
+                        ?>
+                    </select>
+                </div>
+
+                <div class="wpvdb-form-group" id="test-automattic-models" <?php echo $current_provider !== 'automattic' ? 'style="display:none;"' : ''; ?>>
+                    <label for="wpvdb-test-automattic-model"><?php esc_html_e('Automattic Model', 'wpvdb'); ?></label>
+                    <select id="wpvdb-test-automattic-model" name="model">
+                        <?php 
+                        $default_model = $settings['automattic']['default_model'] ?? 'automattic-embeddings-001';
+                        $models = [
+                            'automattic-embeddings-001' => 'automattic-embeddings-001'
+                        ];
+                        
+                        foreach ($models as $model_id => $model_name) {
+                            printf(
+                                '<option value="%s" %s>%s</option>',
+                                esc_attr($model_id),
+                                selected($default_model, $model_id, false),
+                                esc_html($model_name)
+                            );
+                        }
+                        ?>
+                    </select>
+                </div>
+                
+                <div class="wpvdb-form-group">
+                    <label for="wpvdb-test-text"><?php esc_html_e('Text to Embed', 'wpvdb'); ?></label>
+                    <textarea id="wpvdb-test-text" name="text" rows="5" placeholder="<?php esc_attr_e('Enter text to generate embedding for...', 'wpvdb'); ?>"></textarea>
+                </div>
+                
+                <div class="wpvdb-form-actions">
+                    <button type="submit" class="button button-primary"><?php esc_html_e('Generate Embedding', 'wpvdb'); ?></button>
+                    <button type="button" class="button wpvdb-modal-cancel"><?php esc_html_e('Cancel', 'wpvdb'); ?></button>
+                </div>
+            </form>
+            
+            <div id="wpvdb-test-embedding-results" style="display:none; margin-top: 20px;">
+                <h3><?php esc_html_e('Results', 'wpvdb'); ?></h3>
+                <div class="wpvdb-results-content">
+                    <div class="wpvdb-status-message"></div>
+                    <div class="wpvdb-embedding-info"></div>
+                </div>
+            </div>
+        </div>
     </div>
     
     <!-- Re-indexing Modal -->
@@ -343,14 +512,14 @@
         <div class="wpvdb-modal-content">
             <span class="wpvdb-modal-close">&times;</span>
             <h2><?php esc_html_e('Re-indexing Content', 'wpvdb'); ?></h2>
-            <div class="wpvdb-reindex-progress">
-                <div class="progress-bar">
-                    <div class="progress-fill" style="width: 0%"></div>
+            
+            <div id="wpvdb-reindex-progress">
+                <div class="wpvdb-progress">
+                    <div id="wpvdb-reindex-progress-bar" class="wpvdb-progress-bar" style="width: 0%;"></div>
                 </div>
-                <div class="progress-status">
-                    <span class="processed">0</span> / <span class="total">0</span> <?php esc_html_e('items processed', 'wpvdb'); ?>
-                </div>
-                <p class="progress-message"><?php esc_html_e('Preparing to re-index content...', 'wpvdb'); ?></p>
+                <p id="wpvdb-reindex-message" class="wpvdb-status-message">
+                    <?php esc_html_e('Preparing to re-index content...', 'wpvdb'); ?>
+                </p>
             </div>
         </div>
     </div>
@@ -531,193 +700,79 @@ mark.error {
     font-style: italic;
     color: #50575e;
 }
+
+/* Embedding test styling */
+.wpvdb-form-group {
+    margin-bottom: 15px;
+}
+
+.wpvdb-form-group label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: 600;
+}
+
+.wpvdb-form-group select,
+.wpvdb-form-group textarea {
+    width: 100%;
+}
+
+.wpvdb-form-actions {
+    margin-top: 20px;
+}
+
+.wpvdb-results-content {
+    background: #f9f9f9;
+    padding: 15px;
+    border: 1px solid #e5e5e5;
+    border-radius: 3px;
+}
+
+.embedding-details {
+    margin-top: 10px;
+}
+
+.embedding-sample {
+    background: #f0f0f1;
+    padding: 10px;
+    overflow: auto;
+    max-height: 150px;
+    border-radius: 3px;
+}
+
+.success-message {
+    color: #008a20;
+    font-weight: bold;
+}
+
+.error-message {
+    color: #d63638;
+    font-weight: bold;
+}
+
+.spinner.is-active {
+    visibility: visible;
+    margin-right: 5px;
+}
 </style>
 
-<script>
-jQuery(document).ready(function($) {
-    // Handle provider change confirmation
-    $('#wpvdb-apply-provider-change').on('click', function(e) {
-        e.preventDefault();
+</div>
+
+<!-- Re-index Modal -->
+<div id="wpvdb-reindex-modal" class="wpvdb-modal" style="display:none;">
+    <div class="wpvdb-modal-content">
+        <span class="wpvdb-modal-close">&times;</span>
+        <h2><?php esc_html_e('Re-indexing Content', 'wpvdb'); ?></h2>
         
-        if (confirm('<?php esc_attr_e('This will delete all existing embeddings and activate the new provider. Are you sure you want to continue?', 'wpvdb'); ?>')) {
-            $.ajax({
-                url: ajaxurl,
-                method: 'POST',
-                data: {
-                    action: 'wpvdb_confirm_provider_change',
-                    nonce: wpvdb.nonce,
-                    cancel: false
-                },
-                success: function(response) {
-                    if (response.success) {
-                        alert(response.data.message);
-                        location.reload();
-                    } else {
-                        alert(response.data.message || 'An error occurred');
-                    }
-                },
-                error: function() {
-                    alert('<?php esc_attr_e('An unexpected error occurred', 'wpvdb'); ?>');
-                }
-            });
-        }
-    });
-    
-    // Handle provider change cancellation
-    $('#wpvdb-cancel-provider-change').on('click', function(e) {
-        e.preventDefault();
-        
-        $.ajax({
-            url: ajaxurl,
-            method: 'POST',
-            data: {
-                action: 'wpvdb_confirm_provider_change',
-                nonce: wpvdb.nonce,
-                cancel: true
-            },
-            success: function(response) {
-                if (response.success) {
-                    location.reload();
-                }
-            }
-        });
-    });
-    
-    // Re-index content with pending provider/model
-    $('#wpvdb-reindex-content').on('click', function() {
-        var provider = $(this).data('provider');
-        var model = $(this).data('model');
-        
-        // Show modal
-        $('#wpvdb-reindex-modal').show();
-        
-        // Get all posts to re-index
-        $.ajax({
-            url: ajaxurl,
-            method: 'POST',
-            data: {
-                action: 'wpvdb_get_posts_for_indexing',
-                nonce: wpvdb.nonce
-            },
-            success: function(response) {
-                if (response.success && response.data.posts) {
-                    var posts = response.data.posts;
-                    $('.total').text(posts.length);
-                    
-                    // Process in batches
-                    processBatch(posts, 0, 5, provider, model);
-                } else {
-                    $('.progress-message').text('<?php esc_attr_e('No content found to index', 'wpvdb'); ?>');
-                }
-            }
-        });
-    });
-    
-    // Process posts in batches
-    function processBatch(allPosts, startIndex, batchSize, provider, model) {
-        if (startIndex >= allPosts.length) {
-            // All done
-            $('.progress-fill').css('width', '100%');
-            $('.progress-message').text('<?php esc_attr_e('Re-indexing complete!', 'wpvdb'); ?>');
-            
-            // If we were re-indexing due to a provider change, apply the change
-            <?php if ($has_pending_change): ?>
-            $.ajax({
-                url: ajaxurl,
-                method: 'POST',
-                data: {
-                    action: 'wpvdb_confirm_provider_change',
-                    nonce: wpvdb.nonce,
-                    cancel: false
-                },
-                success: function(response) {
-                    if (response.success) {
-                        setTimeout(function() {
-                            alert(response.data.message);
-                            location.reload();
-                        }, 1000);
-                    }
-                }
-            });
-            <?php else: ?>
-            setTimeout(function() {
-                location.reload();
-            }, 2000);
-            <?php endif; ?>
-            
-            return;
-        }
-        
-        // Get current batch
-        var endIndex = Math.min(startIndex + batchSize, allPosts.length);
-        var currentBatch = allPosts.slice(startIndex, endIndex);
-        var postIds = currentBatch.map(function(post) { return post.id; });
-        
-        // Update UI
-        var percentComplete = Math.round((endIndex / allPosts.length) * 100);
-        $('.progress-fill').css('width', percentComplete + '%');
-        $('.processed').text(endIndex);
-        $('.progress-message').text('<?php esc_attr_e('Processing posts...', 'wpvdb'); ?>');
-        
-        // Process batch
-        $.ajax({
-            url: ajaxurl,
-            method: 'POST',
-            data: {
-                action: 'wpvdb_bulk_embed',
-                nonce: wpvdb.nonce,
-                post_ids: postIds,
-                provider: provider,
-                model: model
-            },
-            success: function() {
-                // Process next batch
-                processBatch(allPosts, endIndex, batchSize, provider, model);
-            },
-            error: function() {
-                $('.progress-message').text('<?php esc_attr_e('An error occurred. Retrying...', 'wpvdb'); ?>');
-                setTimeout(function() {
-                    processBatch(allPosts, startIndex, batchSize, provider, model);
-                }, 3000);
-            }
-        });
-    }
-    
-    // Close modal
-    $('.wpvdb-modal-close').on('click', function() {
-        $(this).closest('.wpvdb-modal').hide();
-    });
-    
-    // Standard refresh content
-    $('#wpvdb-refresh-content').on('click', function() {
-        var activeProvider = '<?php echo esc_js($embedding_info['active_provider'] ?? ''); ?>';
-        var activeModel = '<?php echo esc_js($embedding_info['active_model'] ?? ''); ?>';
-        
-        if (activeProvider && activeModel) {
-            // Show modal
-            $('#wpvdb-reindex-modal').show();
-            
-            // Get all posts to re-index
-            $.ajax({
-                url: ajaxurl,
-                method: 'POST',
-                data: {
-                    action: 'wpvdb_get_posts_for_indexing',
-                    nonce: wpvdb.nonce
-                },
-                success: function(response) {
-                    if (response.success && response.data.posts) {
-                        var posts = response.data.posts;
-                        $('.total').text(posts.length);
-                        
-                        // Process in batches
-                        processBatch(posts, 0, 5, activeProvider, activeModel);
-                    } else {
-                        $('.progress-message').text('<?php esc_attr_e('No content found to index', 'wpvdb'); ?>');
-                    }
-                }
-            });
-        }
-    });
-});
-</script> 
+        <div id="wpvdb-reindex-progress">
+            <div class="wpvdb-progress">
+                <div id="wpvdb-reindex-progress-bar" class="wpvdb-progress-bar" style="width: 0%;"></div>
+            </div>
+            <p id="wpvdb-reindex-message" class="wpvdb-status-message">
+                <?php esc_html_e('Preparing to re-index content...', 'wpvdb'); ?>
+            </p>
+        </div>
+    </div>
+</div>
+
+</div> <!-- End of wrap --> 

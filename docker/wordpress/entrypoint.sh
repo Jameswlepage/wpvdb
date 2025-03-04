@@ -78,9 +78,7 @@ if ! $(wp core is-installed --allow-root); then
     
     # Install and activate required plugins
     echo "Installing Action Scheduler..."
-    mkdir -p /var/www/html/wp-content/plugins/action-scheduler
-    cp -r /usr/src/action-scheduler/action-scheduler/* /var/www/html/wp-content/plugins/action-scheduler/
-    wp plugin activate action-scheduler --allow-root
+    # We don't need to manually install Action Scheduler as it will be installed via Composer
     
     # Install WordPress Importer
     echo "Installing WordPress Importer..."
@@ -95,12 +93,12 @@ if ! $(wp core is-installed --allow-root); then
         echo "Installing Composer dependencies for WPVDB plugin..."
         cd /var/www/html/wp-content/plugins/wpvdb
         if [ -x "$(command -v composer)" ]; then
-            composer install --no-dev
+            composer install
         else
             echo "Composer not available. Installing Composer..."
             curl -sS https://getcomposer.org/installer | php
             mv composer.phar /usr/local/bin/composer
-            composer install --no-dev
+            composer install
         fi
         cd /var/www/html
     fi
