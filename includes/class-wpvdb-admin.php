@@ -642,7 +642,8 @@ class Admin {
         // Common data for admin scripts
         wp_localize_script('wpvdb-admin', 'wpvdb', [
             'ajaxUrl' => admin_url('admin-ajax.php'),
-            'nonce' => wp_create_nonce('wpvdb_ajax_nonce'),
+            'nonce' => wp_create_nonce('wpvdb-admin'),
+            'version' => WPVDB_VERSION,
             'strings' => [
                 'confirmDelete' => __('Are you sure you want to delete this embedding?', 'wpvdb'),
                 'processing' => __('Processing...', 'wpvdb'),

@@ -1,4 +1,8 @@
 jQuery(document).ready(function($) {
+    console.log('%c WPVDB Admin JS loaded, version:', 'background: #f0f0f0; color: #333; font-size: 14px; padding: 5px;', wpvdb ? wpvdb.version : 'unknown');
+    console.log('%c WPVDB AJAX URL:', 'background: #f0f0f0; color: #333; font-size: 14px; padding: 5px;', wpvdb ? wpvdb.ajaxUrl : 'unknown');
+    console.log('%c WPVDB Nonce available:', 'background: #f0f0f0; color: #333; font-size: 14px; padding: 5px;', wpvdb && wpvdb.nonce ? 'Yes' : 'No');
+    
     // Settings page specific functionality - provider fields toggle
     if (window.location.href.indexOf('page=wpvdb-settings') > -1) {
         // Handle API fields visibility regardless of which settings section is active
@@ -80,7 +84,7 @@ jQuery(document).ready(function($) {
                 
                 // Check if we need to confirm the change
                 $.ajax({
-                    url: wpvdb.ajax_url,
+                    url: wpvdb.ajaxUrl,
                     type: 'POST',
                     data: {
                         action: 'wpvdb_validate_provider_change',
@@ -125,7 +129,7 @@ jQuery(document).ready(function($) {
             
             if (confirm('This will delete all existing embeddings and activate the new provider. Are you sure you want to continue?')) {
                 $.ajax({
-                    url: wpvdb.ajax_url,
+                    url: wpvdb.ajaxUrl,
                     type: 'POST',
                     data: {
                         action: 'wpvdb_confirm_provider_change',
@@ -158,7 +162,7 @@ jQuery(document).ready(function($) {
             
             if (confirm('This will cancel the pending provider change. Are you sure?')) {
                 $.ajax({
-                    url: wpvdb.ajax_url,
+                    url: wpvdb.ajaxUrl,
                     type: 'POST',
                     data: {
                         action: 'wpvdb_confirm_provider_change',
@@ -235,7 +239,7 @@ jQuery(document).ready(function($) {
             
             // Submit AJAX request
             $.ajax({
-                url: wpvdb.ajax_url,
+                url: wpvdb.ajaxUrl,
                 type: 'POST',
                 data: {
                     action: 'wpvdb_test_embedding',
@@ -291,6 +295,7 @@ jQuery(document).ready(function($) {
         });
         
         // Open the bulk embed modal
+        $('#wpvdb-bulk-embed-button').on('click', function() {
             // Reset form and hide results
             $('#wpvdb-bulk-embed-form')[0].reset();
             $('#wpvdb-bulk-embed-results').hide();
@@ -304,9 +309,9 @@ jQuery(document).ready(function($) {
             
             // Show the modal with loading state
             modal.css('display', 'block');
-        $('#wpvdb-bulk-embed').on('click', function() {
+            
             $.ajax({
-                url: wpvdb.ajax_url,
+                url: wpvdb.ajaxUrl,
                 type: 'POST',
                 data: {
                     action: 'wpvdb_get_embedding_content',
@@ -326,6 +331,15 @@ jQuery(document).ready(function($) {
             });
         });
         
+        // Moved misplaced handler to proper location
+        $('#wpvdb-bulk-embed').on('click', function(e) {
+            e.preventDefault();
+            $('#wpvdb-bulk-embed-modal').css('display', 'block');
+            $('#wpvdb-bulk-embed-form')[0].reset();
+            $('#wpvdb-bulk-embed-results').hide();
+            $('.wpvdb-status-message').empty();
+        });
+        
         // Handle delete embedding button click using delegation
         $(document).on('click', '.wpvdb-delete-embedding', function(e) {
             e.preventDefault();
@@ -335,7 +349,7 @@ jQuery(document).ready(function($) {
             
             if (confirm('Are you sure you want to delete this embedding? This action cannot be undone.')) {
                 $.ajax({
-                    url: wpvdb.ajax_url,
+                    url: wpvdb.ajaxUrl,
                     type: 'POST',
                     data: {
                         action: 'wpvdb_delete_embedding',
@@ -369,9 +383,9 @@ jQuery(document).ready(function($) {
             }
         });
         
-        // Handle the bulk embed form submission
-        $('#wpvdb-bulk-embed-form').on('submit', function(e) {
-            e.preventDefault();
+        // Handle the bulk embed button click instead of form submission
+        $('#wpvdb-generate-embeddings-btn').on('click', function(e) {
+            console.log('%c WPVDB Generate Embeddings Button Clicked', 'background: #f0f0f0; color: #333; font-size: 14px; padding: 5px;');
             
             var postType = $('#wpvdb-post-type').val();
             var limit = $('#wpvdb-limit').val();
@@ -379,6 +393,8 @@ jQuery(document).ready(function($) {
             var model = provider === 'openai' ? 
                 $('#wpvdb-openai-model').val() : 
                 $('#wpvdb-automattic-model').val();
+            
+            console.log('%c WPVDB Form Values:', 'background: #f0f0f0; color: #333; font-size: 14px; padding: 5px;', { postType, limit, provider, model });
             
             // Show the results area with progress bar
             $('#wpvdb-bulk-embed-results').show();
@@ -390,7 +406,7 @@ jQuery(document).ready(function($) {
             
             // First, get the list of posts to process
             $.ajax({
-                url: wpvdb.ajax_url,
+                url: wpvdb.ajaxUrl,
                 type: 'POST',
                 data: {
                     action: 'wpvdb_get_posts_for_indexing',
@@ -399,6 +415,7 @@ jQuery(document).ready(function($) {
                     limit: limit
                 },
                 success: function(response) {
+                    console.log('%c WPVDB AJAX Response:', 'background: #f0f0f0; color: #333; font-size: 14px; padding: 5px;', response);
                     if (response.success) {
                         if (response.data.posts.length === 0) {
                             $('.wpvdb-status-message').html('No posts found to embed.');
@@ -409,12 +426,18 @@ jQuery(document).ready(function($) {
                         // We have posts, start the embedding process
                         processPosts(response.data.posts, provider, model);
                     } else {
-                        $('.wpvdb-status-message').html('Error: ' + response.data.message);
+                        $('.wpvdb-status-message').html('Error: ' + (response.data ? response.data.message : 'Unknown error'));
                         $('#wpvdb-bulk-embed-form').find('input, select, button').prop('disabled', false);
                     }
                 },
-                error: function() {
-                    $('.wpvdb-status-message').html('Error fetching posts to embed. Please try again.');
+                error: function(xhr, status, error) {
+                    console.error('%c WPVDB AJAX Error:', 'background: #f04040; color: white; font-size: 14px; padding: 5px;', {
+                        xhr: xhr,
+                        status: status,
+                        error: error,
+                        responseText: xhr.responseText
+                    });
+                    $('.wpvdb-status-message').html('Error fetching posts to embed. Please check the browser console for details.');
                     $('#wpvdb-bulk-embed-form').find('input, select, button').prop('disabled', false);
                 }
             });
@@ -445,7 +468,7 @@ jQuery(document).ready(function($) {
                 $('.wpvdb-status-message').html('Processing ' + (processed + 1) + ' of ' + total + ': "' + post.title + '" (ID: ' + post.id + ')');
                 
                 $.ajax({
-                    url: wpvdb.ajax_url,
+                    url: wpvdb.ajaxUrl,
                     type: 'POST',
                     data: {
                         action: 'wpvdb_bulk_embed',

@@ -400,7 +400,7 @@
             <span class="wpvdb-modal-close">&times;</span>
             <h2><?php esc_html_e('Bulk Generate Embeddings', 'wpvdb'); ?></h2>
             
-            <form id="wpvdb-bulk-embed-form">
+            <form id="wpvdb-bulk-embed-form" onsubmit="return false;">
                 <div class="wpvdb-form-group">
                     <label for="wpvdb-post-type"><?php esc_html_e('Post Type', 'wpvdb'); ?></label>
                     <select id="wpvdb-post-type" name="post_type">
@@ -415,7 +415,7 @@
                 
                 <div class="wpvdb-form-group">
                     <label for="wpvdb-limit"><?php esc_html_e('Limit', 'wpvdb'); ?></label>
-                    <input type="number" id="wpvdb-limit" name="limit" min="1" max="100" value="10">
+                    <input type="number" id="wpvdb-limit" name="limit" min="1" max="1000000" value="10">
                     <p class="description"><?php esc_html_e('Maximum number of posts to process', 'wpvdb'); ?></p>
                 </div>
                 
@@ -444,7 +444,7 @@
                 </div>
                 
                 <div class="wpvdb-form-actions">
-                    <button type="submit" class="button button-primary"><?php esc_html_e('Generate Embeddings', 'wpvdb'); ?></button>
+                    <button type="button" id="wpvdb-generate-embeddings-btn" class="button button-primary"><?php esc_html_e('Generate Embeddings', 'wpvdb'); ?></button>
                     <button type="button" class="button wpvdb-modal-cancel"><?php esc_html_e('Cancel', 'wpvdb'); ?></button>
                 </div>
             </form>
