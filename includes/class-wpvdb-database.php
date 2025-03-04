@@ -26,6 +26,13 @@ class Database {
     private static $has_vector_support = null;
 
     /**
+     * Cache for whether fallbacks are allowed
+     *
+     * @var bool|null
+     */
+    private static $fallbacks_enabled = null;
+
+    /**
      * Get the database type (mysql or mariadb)
      *
      * @return string 'mysql' or 'mariadb'
@@ -45,6 +52,24 @@ class Database {
             error_log('[WPVDB ERROR] Error in get_db_type: ' . $e->getMessage());
             return 'mysql'; // Default fallback
         }
+    }
+
+    /**
+     * Check if fallbacks are allowed for incompatible databases
+     *
+     * @return bool True if fallbacks are enabled
+     */
+    public static function are_fallbacks_enabled() {
+        if (null === self::$fallbacks_enabled) {
+            /**
+             * Filter whether to enable fallbacks for incompatible databases.
+             * 
+             * @param bool $enable_fallbacks Default is false - only compatible databases should be used.
+             */
+            self::$fallbacks_enabled = apply_filters('wpvdb_enable_fallbacks', false);
+            error_log('[WPVDB DEBUG] Fallbacks enabled: ' . (self::$fallbacks_enabled ? 'Yes' : 'No'));
+        }
+        return self::$fallbacks_enabled;
     }
 
     /**
@@ -117,10 +142,12 @@ class Database {
                     }
                 }
             }
-            return self::$has_vector_support;
+            
+            // Even if there's no native vector support, return true if fallbacks are explicitly enabled
+            return self::$has_vector_support || self::are_fallbacks_enabled();
         } catch (\Exception $e) {
             error_log('[WPVDB ERROR] Error in has_native_vector_support: ' . $e->getMessage());
-            return false; // Default fallback
+            return self::are_fallbacks_enabled(); // Return true only if fallbacks are enabled
         }
     }
 
@@ -197,7 +224,7 @@ class Database {
         try {
             error_log('[WPVDB DEBUG] get_embedding_column_type, dimensions: ' . $dimensions);
             
-            if ( self::has_native_vector_support() ) {
+            if ( self::has_native_vector_support() && !self::are_fallbacks_enabled() ) {
                 $db_type = self::get_db_type();
                 error_log('[WPVDB DEBUG] Using VECTOR column type for ' . $db_type);
                 return "VECTOR(" . intval($dimensions) . ")";

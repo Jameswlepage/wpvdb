@@ -45,12 +45,12 @@
         $section = 'system';
     }
     
-    // Generate the section navigation
-    echo '<div class="wpvdb-section-nav">';
+    // Generate the section navigation as simple text links separated by pipes
+    echo '<div class="wpvdb-section-nav" style="margin: 20px 0; padding: 10px 0; font-size: 14px;">';
     $i = 0;
     foreach ($sections as $section_id => $section_label) {
         if ($i > 0) {
-            echo '<span class="divider">|</span>';
+            echo ' | ';
         }
         
         $url = admin_url(sprintf(
@@ -58,11 +58,12 @@
             esc_attr($section_id)
         ));
         
-        $class = ($section === $section_id) ? 'current' : '';
+        $class = ($section === $section_id) ? 'wpvdb-tab-current' : '';
         printf(
-            '<a href="%s" class="%s">%s</a>',
+            '<a href="%s" class="%s" style="%s">%s</a>',
             esc_url($url),
             esc_attr($class),
+            ($section === $section_id) ? 'font-weight: bold; text-decoration: none; color: #000;' : 'text-decoration: none;',
             esc_html($section_label)
         );
         

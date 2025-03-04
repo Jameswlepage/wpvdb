@@ -33,6 +33,9 @@ class Admin {
         // Add admin notices for action results
         add_action('admin_notices', [__CLASS__, 'admin_notices']);
         
+        // Add database compatibility notice
+        add_action('admin_notices', [__CLASS__, 'database_compatibility_notice']);
+        
         // Add meta box to post edit screens
         add_action('add_meta_boxes', [__CLASS__, 'register_meta_boxes']);
         
@@ -44,6 +47,51 @@ class Admin {
         
         // Enqueue block editor assets
         add_action('enqueue_block_editor_assets', [__CLASS__, 'enqueue_editor_assets']);
+    }
+    
+    /**
+     * Check if database is compatible with vector features
+     * 
+     * @return bool Whether the database is compatible
+     */
+    public static function is_database_compatible() {
+        return \WPVDB\Database::has_native_vector_support();
+    }
+    
+    /**
+     * Check if fallbacks are explicitly enabled
+     * 
+     * @return bool Whether fallbacks are enabled
+     */
+    public static function are_fallbacks_enabled() {
+        return \WPVDB\Database::are_fallbacks_enabled();
+    }
+
+    /**
+     * Display admin notice for incompatible databases
+     */
+    public static function database_compatibility_notice() {
+        // Skip this notice if database is compatible or we're already on the WPVDB pages
+        if (self::is_database_compatible() || self::are_fallbacks_enabled() || isset($_GET['page']) && strpos($_GET['page'], 'wpvdb-') === 0) {
+            return;
+        }
+        
+        if (!current_user_can('manage_options')) {
+            return;
+        }
+        
+        $db_type = \WPVDB\Database::get_db_type();
+        $min_version = $db_type === 'mysql' ? '8.0.32' : '11.7';
+        
+        echo '<div class="notice notice-error">';
+        echo '<p><strong>' . __('WordPress Vector Database - Incompatible Database', 'wpvdb') . '</strong></p>';
+        echo '<p>' . sprintf(
+            __('Your %1$s database is not compatible with WordPress Vector Database. Vector features require %1$s version %2$s or newer.', 'wpvdb'),
+            ucfirst($db_type),
+            $min_version
+        ) . '</p>';
+        echo '<p><a href="' . admin_url('admin.php?page=wpvdb-dashboard') . '" class="button button-primary">' . __('View Compatibility Details', 'wpvdb') . '</a></p>';
+        echo '</div>';
     }
     
     /**
@@ -60,6 +108,8 @@ class Admin {
             30
         );
         
+        // If database is compatible or fallbacks are enabled, show all admin pages
+        if (self::is_database_compatible() || self::are_fallbacks_enabled()) {
         // Replace individual submenu pages with a single page with tabs
         add_submenu_page(
             'wpvdb-dashboard',
@@ -107,6 +157,17 @@ class Admin {
             'wpvdb-automattic-connect',
             [__CLASS__, 'render_automattic_connect_page']
         );
+        } else {
+            // Only show a single page for incompatible databases
+            add_submenu_page(
+                'wpvdb-dashboard',
+                __('Database Compatibility', 'wpvdb'),
+                __('Database Compatibility', 'wpvdb'),
+                'manage_options',
+                'wpvdb-dashboard',
+                [__CLASS__, 'render_admin_page']
+            );
+        }
     }
     
     /**
@@ -139,6 +200,7 @@ class Admin {
                 'active_model' => '',
                 'pending_provider' => '',
                 'pending_model' => '',
+                'require_auth' => 1, // Require authentication by default
             ];
             
             add_option('wpvdb_settings', $default_settings);
@@ -175,6 +237,7 @@ class Admin {
                 'auto_embed' => isset($_POST['wpvdb_auto_embed']) ? 1 : 0,
                 'post_types' => isset($_POST['wpvdb_auto_embed_post_types']) && is_array($_POST['wpvdb_auto_embed_post_types']) ? $_POST['wpvdb_auto_embed_post_types'] : [],
                 'enable_summarization' => isset($_POST['wpvdb_summarize_chunks']) ? 1 : 0,
+                'require_auth' => isset($_POST['wpvdb_require_auth']) ? intval($_POST['wpvdb_require_auth']) : 1,
             ];
             
             // Also update individual options for backwards compatibility
@@ -187,6 +250,7 @@ class Admin {
             update_option('wpvdb_chunk_overlap', $input['chunk_overlap']);
             update_option('wpvdb_auto_embed_post_types', $input['post_types']);
             update_option('wpvdb_summarize_chunks', $input['enable_summarization']);
+            update_option('wpvdb_require_auth', $input['require_auth']);
             
             error_log('WPVDB Converted Settings: ' . print_r($input, true));
         }
@@ -468,193 +532,36 @@ class Admin {
      * Render the admin page content
      */
     public static function render_admin_page() {
-        global $wpdb;
+        // If database is not compatible and fallbacks are not enabled, show the incompatible database warning
+        if (!self::is_database_compatible() && !self::are_fallbacks_enabled()) {
+            include WPVDB_PLUGIN_DIR . 'admin/views/incompatible-db-warning.php';
+            return;
+        }
+
+        // For compatible databases, show the regular admin pages
+        $tab = self::get_current_tab();
+        $section = self::get_current_section();
         
-        $current_tab = self::get_current_tab();
+        // Default to dashboard if no tab is specified
+        if (empty($tab)) {
+            $tab = 'dashboard';
+        }
+        
         $tabs = self::get_admin_tabs();
+                
+        // Render admin header
+        include WPVDB_PLUGIN_DIR . 'admin/views/header.php';
         
-        echo '<div class="wrap wpvdb-admin">';
-        echo '<h1>' . esc_html__('Vector Database', 'wpvdb') . '</h1>';
-        
-        echo '<nav class="nav-tab-wrapper woo-nav-tab-wrapper">';
-        foreach ($tabs as $tab_id => $tab_label) {
-            $active = $current_tab === $tab_id ? ' nav-tab-active' : '';
-            $url = admin_url('admin.php?page=wpvdb-' . $tab_id);
-            echo '<a href="' . esc_url($url) . '" class="nav-tab' . $active . '">' . esc_html($tab_label) . '</a>';
-        }
-        echo '</nav>';
-        
-        // Get required variables and settings
-        $settings = get_option('wpvdb_settings', []);
-        $section = isset($_GET['section']) ? sanitize_key($_GET['section']) : 'system';
-        $table_name = $wpdb->prefix . 'wpvdb_embeddings';
-        
-        // Check if table exists
-        $table_exists = $wpdb->get_var("SHOW TABLES LIKE '{$table_name}'") === $table_name;
-        
-        // Default values in case of errors
-        $total_embeddings = 0;
-        $total_docs = 0;
-        $storage_used = size_format(0);
-        
-        // Temporarily disable error output
-        $wpdb->hide_errors();
-        $show_errors = $wpdb->show_errors;
-        $wpdb->show_errors = false;
-        
-        // Load the appropriate view based on the current tab
-        switch ($current_tab) {
-            case 'dashboard':
-                // Get statistics only if table exists
-                if ($table_exists) {
-                    try {
-                        $total_embeddings = $wpdb->get_var("SELECT COUNT(*) FROM {$table_name}") ?: 0;
-                        $total_docs = $wpdb->get_var("SELECT COUNT(DISTINCT doc_id) FROM {$table_name}") ?: 0;
-                        $storage_used = $wpdb->get_var("SELECT SUM(LENGTH(embedding)) FROM {$table_name}");
-                        $storage_used = size_format($storage_used ?: 0);
-                    } catch (\Exception $e) {
-                        // Handle exception
-                        $total_embeddings = 0;
-                        $total_docs = 0;
-                        $storage_used = size_format(0);
-                    }
-                }
-                
-                include WPVDB_PLUGIN_DIR . 'admin/views/dashboard.php';
-                break;
-                
-            case 'settings':
-                // Get settings
-                $provider = $settings['provider'] ?? 'openai';
-                
-                // Check if we have a pending provider change
-                $has_pending_change = !empty($settings['pending_provider']) || !empty($settings['pending_model']);
-                
-                include WPVDB_PLUGIN_DIR . 'admin/views/settings.php';
-                break;
-                
-            case 'embeddings':
-                // Get paginated embeddings if table exists
-                $page = isset($_GET['paged']) ? absint($_GET['paged']) : 1;
-                $per_page = 20;
-                $offset = ($page - 1) * $per_page;
-                
-                $embeddings = [];
-                $total_pages = 0;
-                
-                if ($table_exists) {
-                    try {
-                        $embeddings = $wpdb->get_results($wpdb->prepare(
-                            "SELECT id, doc_id, chunk_id, LEFT(chunk_content, 150) as preview, summary 
-                            FROM {$table_name} ORDER BY id DESC LIMIT %d OFFSET %d",
-                            $per_page, $offset
-                        )) ?: [];
-                        
-                        $total_embeddings = $wpdb->get_var("SELECT COUNT(*) FROM {$table_name}") ?: 0;
-                        $total_pages = ceil($total_embeddings / $per_page);
-                    } catch (\Exception $e) {
-                        // Handle exception
-                        $embeddings = [];
-                        $total_embeddings = 0;
-                        $total_pages = 0;
-                    }
-                }
-                
-                include WPVDB_PLUGIN_DIR . 'admin/views/embeddings.php';
-                break;
-                
-            case 'status':
-                // Check if we need to perform a re-index
-                $has_pending_change = !empty($settings['pending_provider']) || !empty($settings['pending_model']);
-                
-                // Initialize empty arrays
-                $db_info = [
-                    'db_version' => $wpdb->db_version(),
-                    'prefix' => $wpdb->prefix,
-                    'charset' => $wpdb->charset,
-                    'collate' => $wpdb->collate,
-                    'table_exists' => $table_exists,
-                    'table_version' => get_option('wpvdb_db_version', '1.0'),
-                    'total_embeddings' => 0,
-                    'total_documents' => 0,
-                    'storage_used' => size_format(0),
-                ];
-                
-                $db_stats = [
-                    'total_embeddings' => 0,
-                    'total_docs' => 0,
-                    'storage_used' => size_format(0),
-                    'avg_embedding_size' => size_format(0),
-                    'largest_embedding' => size_format(0),
-                    'avg_chunk_content_size' => size_format(0),
-                ];
-                
-                // Get database statistics only if table exists
-                if ($table_exists) {
-                    try {
-                        // Update db_info with actual values
-                        $db_info['total_embeddings'] = $wpdb->get_var("SELECT COUNT(*) FROM {$table_name}") ?: 0;
-                        $db_info['total_documents'] = $wpdb->get_var("SELECT COUNT(DISTINCT doc_id) FROM {$table_name}") ?: 0;
-                        $db_info['storage_used'] = size_format($wpdb->get_var("SELECT SUM(LENGTH(embedding)) FROM {$table_name}") ?: 0);
-                        
-                        // Update db_stats with actual values
-                        $db_stats['total_embeddings'] = $db_info['total_embeddings'];
-                        $db_stats['total_docs'] = $db_info['total_documents'];
-                        $db_stats['storage_used'] = $db_info['storage_used'];
-                        $db_stats['avg_embedding_size'] = size_format($wpdb->get_var("SELECT AVG(LENGTH(embedding)) FROM {$table_name}") ?: 0);
-                        $db_stats['largest_embedding'] = size_format($wpdb->get_var("SELECT MAX(LENGTH(embedding)) FROM {$table_name}") ?: 0);
-                        $db_stats['avg_chunk_content_size'] = size_format($wpdb->get_var("SELECT AVG(LENGTH(chunk_content)) FROM {$table_name}") ?: 0);
-                    } catch (\Exception $e) {
-                        // In case of error, we already have default values
-                    }
-                }
-                
-                // Table structure
-                $table_structure = [];
-                if ($table_exists) {
-                    try {
-                        $table_structure = $wpdb->get_results("DESCRIBE {$table_name}") ?: [];
-                    } catch (\Exception $e) {
-                        $table_structure = [];
-                    }
-                }
-                
-                // Embedding provider information
-                $embedding_info = [
-                    'active_provider' => $settings['active_provider'] ?? '',
-                    'active_model' => $settings['active_model'] ?? '',
-                    'pending_provider' => $settings['pending_provider'] ?? '',
-                    'pending_model' => $settings['pending_model'] ?? '',
-                ];
-                
-                // System information
-                $system_info = [
-                    'php_version' => phpversion(),
-                    'wp_version' => get_bloginfo('version'),
-                    'wp_memory_limit' => WP_MEMORY_LIMIT,
-                    'max_execution_time' => ini_get('max_execution_time'),
-                    'post_max_size' => ini_get('post_max_size'),
-                    'max_input_vars' => ini_get('max_input_vars'),
-                    'mysql_version' => $wpdb->db_version(),
-                    'curl_version' => function_exists('curl_version') ? curl_version()['version'] : __('Not available', 'wpvdb'),
-                    'openai_api_key_set' => !empty(isset($settings['openai']['api_key']) ? $settings['openai']['api_key'] : ''),
-                    'automattic_api_key_set' => !empty(isset($settings['automattic']['api_key']) ? $settings['automattic']['api_key'] : ''),
-                    'vector_db_support' => \WPVDB\Database::has_native_vector_support(),
-                ];
-                
-                include WPVDB_PLUGIN_DIR . 'admin/views/status.php';
-                break;
-                
-            default:
-                // Default to dashboard
-                include WPVDB_PLUGIN_DIR . 'admin/views/dashboard.php';
-                break;
+        // Render tab content
+        $view_file = WPVDB_PLUGIN_DIR . 'admin/views/' . $tab . '.php';
+        if (file_exists($view_file)) {
+            include $view_file;
+        } else {
+            echo '<div class="notice notice-error"><p>' . __('View file not found.', 'wpvdb') . '</p></div>';
         }
         
-        echo '</div>'; // Close .wrap
-        
-        // Restore error display
-        $wpdb->show_errors = $show_errors;
+        // Render admin footer
+        include WPVDB_PLUGIN_DIR . 'admin/views/footer.php';
     }
     
     /**

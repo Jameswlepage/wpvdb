@@ -23,13 +23,38 @@ class Activation {
         
         // Check database version
         self::check_db_version_or_warn();
+        
+        // Check if database is compatible - if not and fallbacks aren't enabled, set a transient
+        // to display a notice about compatibility and possible auto-deactivation
+        $is_compatible = Database::has_native_vector_support();
+        $fallbacks_enabled = Database::are_fallbacks_enabled();
+        
+        if (!$is_compatible && !$fallbacks_enabled) {
+            // Set transient for admin notice
+            set_transient('wpvdb_incompatible_db_notice', true, 0);
+            
+            // Set a flag to possibly deactivate the plugin later
+            update_option('wpvdb_incompatible_db', true);
+            
+            // Log the incompatible activation
+            error_log('[WPVDB] Activated on incompatible database. Vector features require MySQL 8.0.32+ or MariaDB 11.7+.');
+            
+            // Restore error reporting and return early (we'll show the warning later)
+            error_reporting($old_error_reporting);
+            $wpdb->show_errors = $show_errors;
+            return;
+        } else {
+            // Database is compatible or fallbacks are enabled, remove any flags
+            delete_option('wpvdb_incompatible_db');
+            delete_transient('wpvdb_incompatible_db_notice');
+        }
 
         // Prepare table schema.
         $table_name = $wpdb->prefix . 'wpvdb_embeddings';
         $charset_collate = $wpdb->get_charset_collate();
 
         // Determine if we have native vector support.
-        if (Database::has_native_vector_support()) {
+        if (Database::has_native_vector_support() && !Database::are_fallbacks_enabled()) {
             // Use VECTOR(...) column if MariaDB ≥ 11.7 or MySQL ≥ 9.0 supports it.
             $dimensions = WPVDB_DEFAULT_EMBED_DIM; // Example dimension.
             

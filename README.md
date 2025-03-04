@@ -5,19 +5,23 @@ A WordPress plugin that enables vector database functionality for semantic searc
 ## Features
 
 - Store and query vector embeddings in your WordPress database
-- Works with both MySQL 9.0+ (native VECTOR type) and MariaDB 11.7+ (VECTOR type + index)
-- Fallback to JSON storage for compatibility with older database versions
-- Generate embeddings using OpenAI's API (or other providers)
-- Extend WP_Query with vector similarity search
-- REST API for embedding generation and vector search
-- Background processing with Action Scheduler
+- Native vector type support for MySQL 8.0.32+ and MariaDB 11.7+
+- Fallback JSON storage for compatibility with older database versions 
+- Generate embeddings using OpenAI's API or Automattic's API
+- Extend WP_Query with vector similarity search via `vdb_vector_query`
+- Automatic content chunking and embedding generation
+- Optional chunk summarization using AI
+- REST API endpoints for embedding generation and vector search
+- Background processing with Action Scheduler (if available)
+- Admin interface for managing vector database settings
+- Block editor integration
 
 ## Requirements
 
-- WordPress 5.8+
+- WordPress 6.0+
 - PHP 7.4+
 - For optimal performance:
-  - MySQL 9.0+ (with native VECTOR type) OR
+  - MySQL 8.0.32+ (with native VECTOR type) OR
   - MariaDB 11.7+ (with VECTOR type and VECTOR index)
 - Action Scheduler (recommended but not required)
 
@@ -29,7 +33,7 @@ A WordPress plugin that enables vector database functionality for semantic searc
 
 ## Using the Docker Testing Environment
 
-This plugin includes a Docker setup to test with both MySQL 9.0+ and MariaDB 11.7+ vector databases.
+This plugin includes a Docker setup to test with both MySQL 8.0.32+ and MariaDB 11.7+ vector databases.
 
 ### Starting the Environment
 
@@ -39,7 +43,7 @@ docker-compose up -d
 
 This will start two separate WordPress instances:
 
-- **WordPress with MySQL 9.0+**: http://localhost:9080
+- **WordPress with MySQL 8.0.32+**: http://localhost:9080
 - **WordPress with MariaDB 11.7+**: http://localhost:9081
 
 Both instances have:
@@ -59,7 +63,7 @@ Both instances have:
 
 ### Testing Vector Functionality
 
-#### For MySQL 9.0+:
+#### For MySQL 8.0.32+:
 
 1. Visit http://localhost:9080/wp-admin
 2. Configure API keys in Vector DB settings
@@ -75,13 +79,13 @@ Both instances have:
 
 ### Database Comparison
 
-| Feature | MySQL 9.0+ | MariaDB 11.7+ |
+| Feature | MySQL 8.0.32+ | MariaDB 11.7+ |
 |---------|------------|---------------|
 | Vector Type | VECTOR(dim) | VECTOR(dim) |
 | Max Dimensions | 16383 | No stated limit |
 | Vector Index | No native support | VECTOR index type |
 | Algorithm | N/A | Modified HNSW |
-| Distance Functions | Requires custom functions | Built-in (VEC_DISTANCE_EUCLIDEAN, etc.) |
+| Distance Functions | STRING_TO_VECTOR function | Built-in (VEC_DISTANCE_EUCLIDEAN, etc.) |
 | Optimization | Minimal | Specialized for vector search |
 
 ## Usage
@@ -90,8 +94,7 @@ Both instances have:
 
 ```php
 // Generate an embedding for a text chunk
-$api_key = 'your-api-key';
-$embedding = WPVDB\Core::get_embedding('Your text to embed');
+$embedding = WPVDB\Core::get_embedding('Your text to embed', 'text-embedding-3-small', 'https://api.openai.com/v1/', 'your-api-key');
 
 // Store the embedding
 WPVDB\REST::insert_embedding_row(
@@ -110,20 +113,38 @@ WPVDB\REST::insert_embedding_row(
 $args = array(
     'post_type' => 'post',
     'posts_per_page' => 5,
-    'vector_query' => array(
-        'query' => 'Your search query',
-        'model' => 'text-embedding-3-small'
-    )
+    'vdb_vector_query' => 'Your search query'
 );
 
 $query = new WP_Query($args);
 ```
 
+### Chunk Text
+
+```php
+// Chunk a long text into manageable pieces
+$chunks = apply_filters('wpvdb_chunk_text', [], 'Your long text content');
+
+// Use enhanced chunking with custom chunk size
+$chunks = WPVDB\Core::enhanced_chunking([], 'Your long text content', 500);
+```
+
 ## REST API Endpoints
 
-- `GET /wp-json/vdb/v1/embeddings` - List embeddings
-- `POST /wp-json/vdb/v1/embeddings` - Create embeddings
+- `POST /wp-json/vdb/v1/embed` - Generate embeddings for text
+- `POST /wp-json/vdb/v1/vectors` - Store vectors for content
 - `POST /wp-json/vdb/v1/query` - Perform vector search
+- `GET /wp-json/vdb/v1/metadata` - Get information about the vector database
+- `POST /wp-json/wp/v2/wpvdb/reembed` - Re-embed content from the block editor
+
+## Configuration
+
+You can securely configure API keys by adding constants to your wp-config.php file:
+
+```php
+define('WPVDB_OPENAI_API_KEY', 'your-openai-api-key');
+define('WPVDB_AUTOMATTIC_API_KEY', 'your-automattic-api-key');
+```
 
 ## Documentation
 

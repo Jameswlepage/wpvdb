@@ -11,13 +11,30 @@ jQuery(document).ready(function($) {
         
         // Add tab links if they don't exist
         if ($('.wpvdb-settings-tabs').length === 0) {
-            var tabsHtml = '<div class="wpvdb-settings-tabs">' +
-                '<ul class="wpvdb-tabs">' +
-                    '<li class="' + (currentSection === 'api' ? 'active' : '') + '"><a href="?page=wpvdb-settings&section=api">API Configuration</a></li>' +
-                    '<li class="' + (currentSection === 'content' ? 'active' : '') + '"><a href="?page=wpvdb-settings&section=content">Content Settings</a></li>' +
-                    '<li class="' + (currentSection === 'inclusion' ? 'active' : '') + '"><a href="?page=wpvdb-settings&section=inclusion">Content Inclusion</a></li>' +
-                '</ul>' +
-            '</div>';
+            var tabsHtml = '<div class="wpvdb-settings-tabs" style="margin: 20px 0; padding: 10px 0; font-size: 14px;">';
+            
+            // API Configuration tab
+            tabsHtml += '<a href="?page=wpvdb-settings&section=api" style="' + 
+                (currentSection === 'api' ? 'font-weight: bold; text-decoration: none; color: #000;' : 'text-decoration: none;') + 
+                '" class="' + (currentSection === 'api' ? 'wpvdb-tab-current' : '') + '">API Configuration</a>';
+            
+            // Pipe separator
+            tabsHtml += ' | ';
+            
+            // Content Settings tab
+            tabsHtml += '<a href="?page=wpvdb-settings&section=content" style="' + 
+                (currentSection === 'content' ? 'font-weight: bold; text-decoration: none; color: #000;' : 'text-decoration: none;') + 
+                '" class="' + (currentSection === 'content' ? 'wpvdb-tab-current' : '') + '">Content Settings</a>';
+            
+            // Pipe separator
+            tabsHtml += ' | ';
+            
+            // Content Inclusion tab
+            tabsHtml += '<a href="?page=wpvdb-settings&section=inclusion" style="' + 
+                (currentSection === 'inclusion' ? 'font-weight: bold; text-decoration: none; color: #000;' : 'text-decoration: none;') + 
+                '" class="' + (currentSection === 'inclusion' ? 'wpvdb-tab-current' : '') + '">Content Inclusion</a>';
+            
+            tabsHtml += '</div>';
             
             $('.wpvdb-settings h1').after(tabsHtml);
         }
@@ -35,7 +52,7 @@ jQuery(document).ready(function($) {
         });
         
         // Add click handler for tab links
-        $('.wpvdb-tabs li a').on('click', function(e) {
+        $('.wpvdb-settings-tabs a').on('click', function(e) {
             e.preventDefault();
             window.location.href = $(this).attr('href');
         });

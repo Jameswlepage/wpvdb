@@ -38,13 +38,75 @@ $exclude_custom_fields = get_option('wpvdb_exclude_custom_fields', []);
 
     <h1><?php esc_html_e('Vector Database Settings', 'wpvdb'); ?></h1>
     
+    <?php
+    // Define available sections
+    $sections = [
+        'api' => __('API Configuration', 'wpvdb'),
+        'content' => __('Content Settings', 'wpvdb'),
+        'inclusion' => __('Content Inclusion', 'wpvdb')
+    ];
+    
+    // Get the current section from URL or default to 'api'
+    $current_section = isset($_GET['section']) ? sanitize_key($_GET['section']) : 'api';
+    
+    // Ensure we have a valid section
+    if (!array_key_exists($current_section, $sections)) {
+        $current_section = 'api';
+    }
+    
+    // Generate the section navigation as simple text links separated by pipes
+    echo '<div class="wpvdb-section-nav" style="margin: 20px 0; padding: 10px 0; font-size: 14px;">';
+    $i = 0;
+    foreach ($sections as $section_id => $section_label) {
+        if ($i > 0) {
+            echo ' | ';
+        }
+        
+        $url = add_query_arg([
+            'page' => 'wpvdb-settings',
+            'section' => $section_id
+        ], admin_url('admin.php'));
+        
+        $class = ($current_section === $section_id) ? 'wpvdb-tab-current' : '';
+        printf(
+            '<a href="%s" class="%s" style="%s">%s</a>',
+            esc_url($url),
+            esc_attr($class),
+            ($current_section === $section_id) ? 'font-weight: bold; text-decoration: none; color: #000;' : 'text-decoration: none;',
+            esc_html($section_label)
+        );
+        
+        $i++;
+    }
+    echo '</div>';
+    ?>
+    
     <form method="post" action="options.php" id="wpvdb-settings-form">
         <?php settings_fields('wpvdb_settings'); ?>
         
-        <div class="wpvdb-settings-section">
+        <!-- API Configuration Section -->
+        <div class="wpvdb-settings-section" <?php echo $current_section !== 'api' ? 'style="display: none;"' : ''; ?>>
             <h2><?php esc_html_e('API Configuration', 'wpvdb'); ?></h2>
             
             <table class="form-table">
+                <tr>
+                    <th scope="row">
+                        <label for="wpvdb_require_auth"><?php esc_html_e('API Authentication', 'wpvdb'); ?></label>
+                    </th>
+                    <td>
+                        <select name="wpvdb_require_auth" id="wpvdb_require_auth">
+                            <option value="1" <?php selected(get_option('wpvdb_require_auth', 1), 1); ?>><?php esc_html_e('Require Authentication', 'wpvdb'); ?></option>
+                            <option value="0" <?php selected(get_option('wpvdb_require_auth', 1), 0); ?>><?php esc_html_e('Open Access (No Authentication)', 'wpvdb'); ?></option>
+                        </select>
+                        <p class="description">
+                            <?php esc_html_e('Determine if REST API endpoints require authentication via Application Passwords. Default is to require authentication for security.', 'wpvdb'); ?>
+                            <?php if (get_option('wpvdb_require_auth', 1) == 0): ?>
+                                <span class="wpvdb-warning"><?php esc_html_e('Warning: Open access allows anyone to query your vector database.', 'wpvdb'); ?></span>
+                            <?php endif; ?>
+                        </p>
+                    </td>
+                </tr>
+                
                 <tr>
                     <th scope="row">
                         <label for="wpvdb_provider"><?php esc_html_e('Embedding Provider', 'wpvdb'); ?></label>
@@ -128,7 +190,8 @@ $exclude_custom_fields = get_option('wpvdb_exclude_custom_fields', []);
             </table>
         </div>
         
-        <div class="wpvdb-settings-section">
+        <!-- Content Settings Section -->
+        <div class="wpvdb-settings-section" <?php echo $current_section !== 'content' ? 'style="display: none;"' : ''; ?>>
             <h2><?php esc_html_e('Content Settings', 'wpvdb'); ?></h2>
             
             <table class="form-table">
@@ -229,7 +292,8 @@ $exclude_custom_fields = get_option('wpvdb_exclude_custom_fields', []);
             </table>
         </div>
         
-        <div class="wpvdb-settings-section">
+        <!-- Content Inclusion Section -->
+        <div class="wpvdb-settings-section" <?php echo $current_section !== 'inclusion' ? 'style="display: none;"' : ''; ?>>
             <h2><?php esc_html_e('Content Inclusion Settings', 'wpvdb'); ?></h2>
             
             <table class="form-table">
@@ -383,70 +447,47 @@ $exclude_custom_fields = get_option('wpvdb_exclude_custom_fields', []);
 </div>
 
 <style>
-/* WooCommerce-like admin styling */
-.wpvdb-settings-tabs {
-    margin-top: 20px;
-}
-
-.wpvdb-tabs {
-    display: flex;
-    margin: 0;
-    padding: 0;
-    border-bottom: 1px solid #ccc;
-    background: #f7f7f7;
-}
-
-.wpvdb-tabs li {
-    margin: 0;
-    padding: 0;
-    list-style: none;
-}
-
-.wpvdb-tabs li a {
-    display: block;
-    padding: 10px 15px;
-    text-decoration: none;
-    color: #0073aa;
-    font-weight: 500;
-    border-bottom: 3px solid transparent;
-}
-
-.wpvdb-tabs li.active a {
+/* Simple styles for section tabs */
+.wpvdb-settings-section {
     background: #fff;
-    border-bottom-color: #0073aa;
+    border: 1px solid #ccc;
+    padding: 20px;
+    margin-top: 10px;
+}
+
+.wpvdb-tab-current {
+    font-weight: bold;
     color: #000;
 }
 
-.wpvdb-tab-content {
-    background: #fff;
-    border: 1px solid #ccc;
-    border-top: none;
-    padding: 20px;
+.wpvdb-section-nav a, 
+.wpvdb-settings-tabs a {
+    text-decoration: none;
 }
 
-.wpvdb-tab-pane {
-    display: none;
+.wpvdb-section-nav a:hover, 
+.wpvdb-settings-tabs a:hover {
+    color: #0073aa;
 }
 
-.wpvdb-tab-pane.active {
-    display: block;
+/* Plugin settings styling */
+.wpvdb-settings-form label {
+    font-weight: 500;
 }
 
-/* Provider radio buttons styling */
-.wpvdb-settings [type="radio"] {
-    margin-right: 8px;
+.wpvdb-provider-field {
+    margin-bottom: 15px;
 }
 
-.wpvdb-settings label {
-    margin-right: 15px;
-    vertical-align: middle;
+.api-info-box {
+    background: #f8f9fa;
+    border: 1px solid #ddd;
+    padding: 15px;
+    margin-top: 10px;
 }
 
-.provider-info {
-    margin-top: 10px !important;
-    padding: 5px 10px;
-    background: #f0f6fc;
-    border-left: 4px solid #0073aa;
+.api-key-instructions {
+    margin-top: 15px;
 }
 
 /* Connection status styling */
@@ -479,5 +520,33 @@ $exclude_custom_fields = get_option('wpvdb_exclude_custom_fields', []);
 
 .connection-actions {
     margin-top: 10px;
+}
+
+.wpvdb-warning {
+    display: inline-block;
+    margin-top: 5px;
+    padding: 3px 8px;
+    background-color: #fcf8e3;
+    border: 1px solid #faebcc;
+    color: #8a6d3b;
+    border-radius: 3px;
+    font-weight: 500;
+}
+
+/* Provider radio buttons styling */
+.wpvdb-settings [type="radio"] {
+    margin-right: 8px;
+}
+
+.wpvdb-settings label {
+    margin-right: 15px;
+    vertical-align: middle;
+}
+
+.provider-info {
+    margin-top: 10px !important;
+    padding: 5px 10px;
+    background: #f0f6fc;
+    border-left: 4px solid #0073aa;
 }
 </style> 

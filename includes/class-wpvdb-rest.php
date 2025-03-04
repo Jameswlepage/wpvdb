@@ -13,10 +13,15 @@ class REST {
      * Registers custom REST routes under the namespace 'vdb/v1'.
      */
     public static function register_routes() {
+        error_log('[WPVDB] Attempting to register REST routes');
+        
         // Only register routes if current user has permission
         if (!self::default_permission_check()) {
+            error_log('[WPVDB] Skipping route registration due to permission check failing');
             return;
         }
+        
+        error_log('[WPVDB] Permission check passed, registering routes');
         
         register_rest_route('vdb/v1', '/embed', [
             'methods' => 'POST',
@@ -48,26 +53,87 @@ class REST {
             'callback' => [__CLASS__, 'handle_reembed'],
             'permission_callback' => [__CLASS__, 'default_permission_check'],
         ]);
+        
+        error_log('[WPVDB] Successfully registered all REST routes');
     }
 
     /**
      * Basic permission check. By default, require 'edit_posts'.
+     * If authentication is disabled in settings, allow public access.
      */
     public static function default_permission_check() {
-        return current_user_can('edit_posts');
+        // Check if authentication is required (from individual option or from settings array)
+        $require_auth = get_option('wpvdb_require_auth', 1);
+        
+        // Also check the settings array for compatibility with new format
+        $settings = get_option('wpvdb_settings', []);
+        if (isset($settings['require_auth'])) {
+            $require_auth = $settings['require_auth'];
+        }
+        
+        error_log('[WPVDB] Permission check - require_auth setting: ' . var_export($require_auth, true));
+        
+        if (empty($require_auth)) {
+            // If authentication is disabled, allow public access
+            error_log('[WPVDB] Authentication disabled, allowing public access');
+            return true;
+        }
+        
+        // If we're using application passwords, check that
+        if (function_exists('wp_is_application_passwords_available') && wp_is_application_passwords_available()) {
+            error_log('[WPVDB] Using application passwords for authentication');
+            // Check for application password first
+            if (current_user_can('edit_posts')) {
+                error_log('[WPVDB] User has edit_posts capability, allowing access');
+                return true;
+            } else {
+                // Return false explicitly to ensure proper error message
+                error_log('[WPVDB] User does not have edit_posts capability, denying access');
+                return new \WP_Error(
+                    'rest_forbidden',
+                    __('Authentication required via Application Password.', 'wpvdb'),
+                    ['status' => 401]
+                );
+            }
+        } else {
+            // Fall back to regular capability check if application passwords aren't enabled
+            $can_edit = current_user_can('edit_posts');
+            error_log('[WPVDB] Regular capability check result: ' . var_export($can_edit, true));
+            return $can_edit;
+        }
     }
 
     /**
      * POST /vdb/v1/embed
+     * 
+     * Request format:
      * {
-     *   "doc_id": 123,
-     *   "text": "some long text"
+     *   "doc_id": 123,                        // Document ID (typically post ID)
+     *   "text": "some long text to embed"     // Text content to chunk, summarize, and embed
      * }
-     * - chunk the text
-     * - optional summarization
-     * - embed each chunk
-     * - store row in DB
-     * returns JSON with inserted rows
+     * 
+     * Response format:
+     * {
+     *   "success": true,                     // Whether the operation was successful
+     *   "doc_id": 123,                       // Document ID
+     *   "count": 5,                          // Number of chunks created
+     *   "chunks": [                          // Array of created chunks
+     *     {
+     *       "id": 456,                       // Database row ID
+     *       "doc_id": 123,                   // Document ID
+     *       "chunk_id": "chunk-0",           // Chunk identifier
+     *       "chunk_content": "...",          // The text content of the chunk
+     *       "summary": "..."                 // AI-generated summary if enabled
+     *     },
+     *     ...more chunks...
+     *   ]
+     * }
+     * 
+     * Notes:
+     * - Text will be automatically chunked using filters
+     * - Each chunk will be sent to the API for embedding generation
+     * - Optional summarization if enabled in settings
+     * - Embeddings are stored in the database using the insert_embedding_row method
      */
     public static function handle_embed(WP_REST_Request $request) {
         global $wpdb;
@@ -140,14 +206,33 @@ class REST {
 
     /**
      * POST /vdb/v1/vectors
-     * Accepts pre-computed embedding, chunk text, doc_id, chunk_id, summary
+     * 
+     * Request format:
      * {
-     *   "doc_id":123,
-     *   "chunk_id":"some-chunk-id",
-     *   "chunk_content":"The text for this chunk",
-     *   "embedding":[float array],
-     *   "summary":"..."
+     *   "doc_id": 123,                                  // Document ID (typically post ID)
+     *   "chunk_id": "some-chunk-id",                    // Chunk identifier (optional, defaults to "chunk-0")
+     *   "chunk_content": "The text for this chunk",     // The text content of the chunk (optional)
+     *   "embedding": [0.123, -0.456, ...],              // Pre-computed embedding vector array
+     *   "summary": "Optional summary of the chunk"      // Summary of the chunk (optional)
      * }
+     * 
+     * Response format:
+     * {
+     *   "success": true,                                // Whether the operation was successful
+     *   "row": {                                        // Information about the inserted row
+     *     "id": 456,                                    // Database row ID
+     *     "doc_id": 123,                                // Document ID
+     *     "chunk_id": "some-chunk-id",                  // Chunk identifier
+     *     "chunk_content": "The text for this chunk",   // The text content of the chunk
+     *     "summary": "Optional summary of the chunk"    // Summary if provided
+     *   }
+     * }
+     * 
+     * Notes:
+     * - Unlike the /embed endpoint, this accepts pre-computed embeddings
+     * - Useful for client-side embedding generation or batch operations
+     * - The embedding will be stored using native vector types if supported
+     * - Otherwise, it will be stored as JSON in the database
      */
     public static function handle_vectors(WP_REST_Request $request) {
         $doc_id       = $request->get_param('doc_id');
@@ -173,13 +258,37 @@ class REST {
 
     /**
      * POST /vdb/v1/query
+     * 
+     * Request format:
      * {
-     *   "query_text": "some text to embed and search with",
-     *   "embedding": [float array],
-     *   "k": 5
+     *   "query_text": "some text to embed and search with",    // Text query to find similar content (optional if embedding provided)
+     *   "embedding": [0.123, -0.456, ...],                    // Pre-computed embedding vector array (optional if query_text provided)
+     *   "k": 5                                                // Number of results to return (default: 5)
      * }
-     * - If embedding is provided, skip generating. Otherwise generate from query_text.
-     * - Find top-k nearest neighbors in DB. Return them with distance.
+     * 
+     * Response format:
+     * [
+     *   {
+     *     "id": 123,                                          // Database row ID
+     *     "doc_id": 456,                                      // Document ID (typically post ID)
+     *     "chunk_id": "chunk-0",                              // Chunk identifier
+     *     "chunk_content": "The text content of this chunk",  // The text content of the chunk
+     *     "summary": "Optional summary of the chunk",         // Summary if available
+     *     "distance": 0.123,                                  // Semantic distance (lower is more similar)
+     *     "debug_info": {                                     // Debug information
+     *       "database_type": "mysql",                         // Database type (mysql or mariadb)
+     *       "has_vector_support": "yes"                       // Whether native vector support is available
+     *     }
+     *   },
+     *   ...more results...
+     * ]
+     * 
+     * Notes:
+     * - Either query_text OR embedding must be provided
+     * - If query_text is provided, a new embedding will be generated using the configured API
+     * - If embedding is provided, it will be used directly for vector search
+     * - Native vector operations are used if supported by the database
+     * - Fallback to PHP-based cosine distance calculation otherwise
      */
     public static function handle_query(WP_REST_Request $request) {
         global $wpdb;
@@ -335,7 +444,26 @@ class REST {
 
     /**
      * GET /vdb/v1/metadata
-     * Returns information about the vector database
+     * 
+     * Returns information about the vector database status and configuration
+     * 
+     * Request: No parameters needed
+     * 
+     * Response format:
+     * {
+     *   "plugin_version": "1.0.0",                // Current plugin version
+     *   "embedding_dimension": 1536,              // Default embedding dimension
+     *   "total_embeddings": 1250,                 // Total number of embeddings stored
+     *   "total_documents": 75,                    // Total number of unique documents embedded
+     *   "native_vector_support": true,            // Whether native vector types are supported
+     *   "database_version": "MySQL 8.0.32",       // Database version information
+     *   "table_exists": true                      // Whether the embeddings table exists
+     * }
+     * 
+     * Notes:
+     * - Useful for diagnostics and status checking
+     * - Can be used to verify if the plugin is properly set up
+     * - Returns database type and version information
      */
     public static function handle_metadata(WP_REST_Request $request) {
         global $wpdb;
@@ -552,10 +680,28 @@ class REST {
     }
 
     /**
-     * Handle reembed request from block editor
+     * POST /wp/v2/wpvdb/reembed
      * 
-     * @param WP_REST_Request $request
-     * @return WP_REST_Response
+     * Triggers re-embedding of a specific post's content
+     * 
+     * Request format:
+     * {
+     *   "post_id": 123                          // Post ID to re-embed
+     * }
+     * 
+     * Response format:
+     * {
+     *   "success": true,                        // Whether the operation was scheduled successfully
+     *   "message": "Embedding generation started", // Status message
+     *   "post_id": 123                          // Post ID being processed
+     * }
+     * 
+     * Notes:
+     * - Deletes any existing embeddings for the post
+     * - Clears existing embedding metadata
+     * - Queues the post for re-embedding using Action Scheduler
+     * - Uses the currently active provider and model from settings
+     * - In debug mode, may process the queue immediately
      */
     public static function handle_reembed(WP_REST_Request $request) {
         $post_id = absint($request->get_param('post_id'));
