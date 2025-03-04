@@ -29,3 +29,5 @@ Thumbs.db
 *.zip
 /dist/
 /build/ 
+
+/docker/wordpress/setup/test-data.xml

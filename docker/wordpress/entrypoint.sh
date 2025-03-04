@@ -32,6 +32,29 @@ until mysqladmin ping -h"${DB_HOST}" -u"${DB_USER}" -p"${DB_PASS}" --silent; do
 done
 echo "Successfully connected to database at ${DB_HOST}"
 
+# Explicitly skip all .git directories before setting permissions
+echo "Setting proper permissions for WordPress directories..."
+find /var/www/html -name ".git" -type d -prune -o -type d -exec chown www-data:www-data {} \;
+find /var/www/html -name ".git" -type d -prune -o -type f -exec chown www-data:www-data {} \;
+find /var/www/html -name ".git" -type d -prune -o -type d -exec chmod 755 {} \;
+
+# Make wp-content and its subdirectories writable
+echo "Making wp-content writable..."
+find /var/www/html/wp-content -name ".git" -type d -prune -o -type d -exec chmod 775 {} \;
+find /var/www/html/wp-content -name ".git" -type d -prune -o -type f -exec chmod 664 {} \;
+
+# Ensure specific directories are writable without touching .git
+mkdir -p /var/www/html/wp-content/uploads
+mkdir -p /var/www/html/wp-content/upgrade
+
+# More targeted approach for plugins, themes, uploads, upgrade
+find /var/www/html/wp-content/plugins -name ".git" -type d -prune -o -type d -exec chmod 775 {} \;
+find /var/www/html/wp-content/plugins -name ".git" -type d -prune -o -type f -exec chmod 664 {} \;
+find /var/www/html/wp-content/themes -name ".git" -type d -prune -o -type d -exec chmod 775 {} \;
+find /var/www/html/wp-content/themes -name ".git" -type d -prune -o -type f -exec chmod 664 {} \;
+chmod -R 775 /var/www/html/wp-content/uploads
+chmod -R 775 /var/www/html/wp-content/upgrade
+
 # Wait for WordPress to be available
 echo "Waiting for WordPress to be ready..."
 max_retries=30
@@ -124,6 +147,11 @@ else
     wp option update siteurl "${EXTERNAL_URL}" --allow-root
     wp option update home "${EXTERNAL_URL}" --allow-root
 fi
+
+# Final permission check after all setup is complete - skip .git
+echo "Setting final permissions..."
+find /var/www/html/wp-content -name ".git" -type d -prune -o -type d -exec chmod 775 {} \;
+find /var/www/html/wp-content -name ".git" -type d -prune -o -type f -exec chmod 664 {} \;
 
 # Create a test page to confirm functionality
 echo "Creating test page..."

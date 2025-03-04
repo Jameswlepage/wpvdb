@@ -1,5 +1,4 @@
 <div class="wrap wpvdb-embeddings">
-    <h1><?php esc_html_e('Vector Database Embeddings', 'wpvdb'); ?></h1>
     
     <?php 
     // Display debug information if needed
@@ -66,6 +65,11 @@
         global $wpdb;
         $table_name = $wpdb->prefix . 'wpvdb_embeddings';
         
+        // Initialize timing for search performance tracking
+        $search_start_time = microtime(true);
+        $search_time_result = 0;
+        $total_vectors_searched = 0;
+        
         // Get the embedding for the search query
         $api_key = \WPVDB\Settings::get_api_key();
         $model = \WPVDB\Settings::get_default_model();
@@ -96,6 +100,10 @@
                         // Use Database class to get the appropriate vector function
                         $vector_function = \WPVDB\Database::get_vector_from_string_function($embedding_json);
                         error_log('[WPVDB DEBUG] Using vector function: ' . $vector_function);
+                        
+                        // Get total count of vectors
+                        $total_vectors_searched = $wpdb->get_var("SELECT COUNT(*) FROM $table_name");
+                        error_log('[WPVDB DEBUG] Total vectors searched: ' . $total_vectors_searched);
                         
                         // Use Database class to get the appropriate distance function with both vectors
                         $db_type = \WPVDB\Database::get_db_type();
@@ -179,7 +187,8 @@
                         // Fallback: do in PHP
                         error_log('[WPVDB DEBUG] Using PHP fallback search');
                         $all_rows = $wpdb->get_results("SELECT * FROM $table_name", ARRAY_A);
-                        error_log('[WPVDB DEBUG] Found ' . count($all_rows) . ' rows for PHP search');
+                        $total_vectors_searched = count($all_rows);
+                        error_log('[WPVDB DEBUG] Total vectors searched: ' . $total_vectors_searched);
                         
                         $distances = [];
                         
@@ -211,6 +220,9 @@
                     
                     // Use search results instead of regular embeddings
                     $embeddings = $search_results;
+                    
+                    // Calculate and record the search time
+                    $search_time_result = microtime(true) - $search_start_time;
                 }
             } catch (\Exception $e) {
                 // Handle errors
@@ -223,6 +235,36 @@
         }
     }
     ?>
+    
+    <?php if (!empty($search_query)) : ?>
+        <p class="description wpvdb-search-note"><?php 
+            printf(
+                esc_html__('Showing top %d semantic search results for "%s"', 'wpvdb'), 
+                count($embeddings), 
+                esc_html($search_query)
+            ); 
+            
+            // Display total vectors searched if available
+            if (isset($total_vectors_searched) && $total_vectors_searched > 0) {
+                echo ' <span class="wpvdb-vector-count">' . 
+                     sprintf(
+                         esc_html__('(searched across %s vectors)', 'wpvdb'),
+                         number_format($total_vectors_searched)
+                     ) . 
+                     '</span>';
+            }
+            
+            // Display search time if available
+            if (isset($search_time_result) && $search_time_result > 0) {
+                echo ' <span class="wpvdb-search-time">' . 
+                     sprintf(
+                         esc_html__('(query completed in %s seconds)', 'wpvdb'),
+                         number_format($search_time_result, 3)
+                     ) . 
+                     '</span>';
+            }
+        ?></p>
+    <?php endif; ?>
     
     <?php if (empty($embeddings)) : ?>
         <div class="wpvdb-no-data">
@@ -323,15 +365,7 @@
             </tbody>
         </table>
         
-        <?php if (!empty($search_query)) : ?>
-            <p class="description wpvdb-search-note"><?php 
-                printf(
-                    esc_html__('Showing top %d semantic search results for "%s"', 'wpvdb'), 
-                    count($embeddings), 
-                    esc_html($search_query)
-                ); 
-            ?></p>
-        <?php elseif ($total_pages > 1) : ?>
+        <?php if ($total_pages > 1) : ?>
             <div class="wpvdb-pagination tablenav">
                 <div class="tablenav-pages">
                     <?php
@@ -430,6 +464,27 @@
 .wpvdb-embeddings {
     position: relative;
     max-width: 100%;
+}
+
+/* Pagination styling */
+.wpvdb-pagination .tablenav-pages .pagination-links {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-start;
+}
+
+.wpvdb-pagination ul.page-numbers {
+    display: flex;
+    flex-direction: row;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.wpvdb-pagination ul.page-numbers li {
+    display: inline-block;
+    margin: 0 3px;
 }
 
 /* Similarity score visualization */
@@ -583,6 +638,28 @@
 .wpvdb-search-note {
     margin: 10px 0;
     font-style: italic;
+}
+
+/* Vector count display */
+.wpvdb-vector-count {
+    font-weight: 500;
+    color: #555;
+    background: #f5f5f5;
+    padding: 2px 8px;
+    border-radius: 3px;
+    margin-left: 5px;
+    white-space: nowrap;
+}
+
+/* Search time display */
+.wpvdb-search-time {
+    font-weight: 500;
+    color: #555;
+    background: #f0f0f0;
+    padding: 2px 8px;
+    border-radius: 3px;
+    margin-left: 5px;
+    white-space: nowrap;
 }
 
 /* Fix for search form */

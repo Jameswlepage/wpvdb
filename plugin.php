@@ -94,6 +94,9 @@ function wpvdb_init_plugin() {
     // Initialize core logic
     \WPVDB\Core::init();
     
+    // Initialize database hooks for cleanup operations
+    \WPVDB\Database::init();
+    
     error_log('[WPVDB] Registering REST routes action');
     
     // Register REST routes

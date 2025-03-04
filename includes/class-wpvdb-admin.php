@@ -42,6 +42,9 @@ class Admin {
         // Add column to post list tables
         add_action('admin_init', [__CLASS__, 'register_post_columns']);
         
+        // Register bulk actions for embedding posts
+        add_action('admin_init', [__CLASS__, 'register_bulk_embed_actions']);
+        
         // Register post meta for block editor
         add_action('init', [__CLASS__, 'register_post_meta']);
         
@@ -1278,11 +1281,11 @@ class Admin {
         
         $model = '';
         if ($provider === 'openai') {
-            $model = isset($settings['openai']['default_model']) && !empty($settings['openai']['default_model']) ? 
-                    $settings['openai']['default_model'] : 'text-embedding-3-small';
+            $model = isset($settings['active_model']) && !empty($settings['active_model']) ? 
+                    $settings['active_model'] : 'text-embedding-3-small';
         } else if ($provider === 'automattic') {
-            $model = isset($settings['automattic']['default_model']) && !empty($settings['automattic']['default_model']) ? 
-                    $settings['automattic']['default_model'] : 'a8cai-embeddings-small-1';
+            $model = isset($settings['active_model']) && !empty($settings['active_model']) ? 
+                    $settings['active_model'] : 'a8cai-embeddings-small-1';
         }
         
         // Queue for re-embedding
@@ -1530,6 +1533,22 @@ class Admin {
             _e('All embeddings have been deleted.', 'wpvdb');
             echo '</p></div>';
         }
+        
+        // Show notice after bulk embed action
+        if (isset($_GET['wpvdb_bulk_embed']) && isset($_GET['processed_count'])) {
+            $count = intval($_GET['processed_count']);
+            echo '<div class="notice notice-success is-dismissible"><p>';
+            printf(
+                _n(
+                    '%d post has been queued for embedding generation.',
+                    '%d posts have been queued for embedding generation.',
+                    $count,
+                    'wpvdb'
+                ),
+                $count
+            );
+            echo '</p></div>';
+        }
     }
     
     /**
@@ -1602,5 +1621,98 @@ class Admin {
             [],
             WPVDB_VERSION
         );
+    }
+    
+    /**
+     * Register bulk actions for embedding posts in supported post types
+     */
+    public static function register_bulk_embed_actions() {
+        $post_types = Settings::get_auto_embed_post_types();
+        
+        foreach ($post_types as $post_type) {
+            add_filter("bulk_actions-edit-{$post_type}", [__CLASS__, 'add_bulk_embed_action']);
+            add_filter("handle_bulk_actions-edit-{$post_type}", [__CLASS__, 'handle_bulk_embed_action'], 10, 3);
+        }
+    }
+    
+    /**
+     * Add bulk embed action to post list tables
+     * 
+     * @param array $bulk_actions
+     * @return array
+     */
+    public static function add_bulk_embed_action($bulk_actions) {
+        $bulk_actions['wpvdb_bulk_embed'] = __('Generate Embeddings', 'wpvdb');
+        return $bulk_actions;
+    }
+    
+    /**
+     * Handle bulk embed action
+     * 
+     * @param string $redirect_to URL to redirect to after the action
+     * @param string $action The action being taken
+     * @param array $post_ids Array of post IDs
+     * @return string Modified redirect URL
+     */
+    public static function handle_bulk_embed_action($redirect_to, $action, $post_ids) {
+        if ($action !== 'wpvdb_bulk_embed') {
+            return $redirect_to;
+        }
+        
+        if (!current_user_can('manage_options')) {
+            return $redirect_to;
+        }
+        
+        if (empty($post_ids)) {
+            return $redirect_to;
+        }
+        
+        // Get settings
+        $settings = get_option('wpvdb_settings', []);
+        if (!is_array($settings)) {
+            $settings = [];
+        }
+        
+        // Use active provider and model
+        $provider = !empty($settings['active_provider']) ? $settings['active_provider'] : 'openai';
+        
+        $model = '';
+        if ($provider === 'openai') {
+            $model = !empty($settings['active_model']) ? 
+                     $settings['active_model'] : 
+                     (!empty($settings['openai']['default_model']) ? 
+                      $settings['openai']['default_model'] : 
+                      'text-embedding-3-small');
+        } else if ($provider === 'automattic') {
+            $model = !empty($settings['active_model']) ? 
+                     $settings['active_model'] : 
+                     (!empty($settings['automattic']['default_model']) ? 
+                      $settings['automattic']['default_model'] : 
+                      'a8cai-embeddings-small-1');
+        }
+        
+        // Queue posts for background processing
+        $queue = new WPVDB_Queue();
+        
+        foreach ($post_ids as $post_id) {
+            $queue->push_to_queue([
+                'post_id' => $post_id,
+                'model' => $model,
+                'provider' => $provider,
+            ]);
+        }
+        
+        $queue->save()->dispatch();
+        
+        // Add the processed count to the redirect URL
+        $redirect_to = add_query_arg(
+            [
+                'wpvdb_bulk_embed' => '1',
+                'processed_count' => count($post_ids)
+            ],
+            $redirect_to
+        );
+        
+        return $redirect_to;
     }
 } 

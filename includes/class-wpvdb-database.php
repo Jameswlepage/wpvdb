@@ -332,4 +332,63 @@ class Database {
         
         return $results;
     }
+    
+    /**
+     * Initialize hooks for database cleanup
+     * 
+     * This sets up the WordPress hooks needed for database maintenance
+     */
+    public static function init() {
+        // Hook into post deletion to clean up embeddings
+        add_action('delete_post', [__CLASS__, 'delete_post_embeddings'], 10, 1);
+        
+        // Hook into post trash if we want to handle that separately
+        // add_action('wp_trash_post', [__CLASS__, 'delete_post_embeddings'], 10, 1);
+    }
+    
+    /**
+     * Delete all embeddings associated with a post when it's deleted
+     *
+     * @param int $post_id The ID of the post being deleted
+     * @return int|false The number of rows deleted, or false on error
+     */
+    public static function delete_post_embeddings($post_id) {
+        global $wpdb;
+        
+        // Skip if not a valid post ID
+        if (!$post_id || $post_id <= 0) {
+            return false;
+        }
+        
+        // Get the table name
+        $table_name = $wpdb->prefix . 'wpvdb_embeddings';
+        
+        // Check if table exists
+        if ($wpdb->get_var("SHOW TABLES LIKE '$table_name'") !== $table_name) {
+            error_log('[WPVDB] Embeddings table does not exist when attempting to delete embeddings for post ' . $post_id);
+            return false;
+        }
+        
+        // Delete all embeddings for this post
+        $result = $wpdb->delete(
+            $table_name,
+            ['doc_id' => $post_id],
+            ['%d']
+        );
+        
+        // Delete post meta related to embeddings
+        delete_post_meta($post_id, '_wpvdb_embedded');
+        delete_post_meta($post_id, '_wpvdb_chunks_count');
+        delete_post_meta($post_id, '_wpvdb_embedded_date');
+        delete_post_meta($post_id, '_wpvdb_embedded_model');
+        
+        // Log the deletion
+        if ($result !== false) {
+            error_log('[WPVDB] Deleted ' . $result . ' embedding chunks for post ' . $post_id);
+        } else {
+            error_log('[WPVDB ERROR] Failed to delete embeddings for post ' . $post_id . ': ' . $wpdb->last_error);
+        }
+        
+        return $result;
+    }
 } 

@@ -291,12 +291,9 @@ jQuery(document).ready(function($) {
         });
         
         // Open the bulk embed modal
-        $('#wpvdb-bulk-embed').on('click', function() {
-            $('#wpvdb-bulk-embed-modal').css('display', 'block');
             // Reset form and hide results
             $('#wpvdb-bulk-embed-form')[0].reset();
             $('#wpvdb-bulk-embed-results').hide();
-            $('.wpvdb-progress-bar').css('width', '0%');
             $('.wpvdb-status-message').empty();
         });
         
@@ -307,9 +304,7 @@ jQuery(document).ready(function($) {
             
             // Show the modal with loading state
             modal.css('display', 'block');
-            $('.wpvdb-full-content').html('<div class="spinner is-active" style="float: none; margin: 0 auto; display: block;"></div><p style="text-align: center;">Loading content...</p>');
-            
-            // Fetch the full content
+        $('#wpvdb-bulk-embed').on('click', function() {
             $.ajax({
                 url: wpvdb.ajax_url,
                 type: 'POST',
