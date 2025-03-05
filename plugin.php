@@ -294,3 +294,18 @@ function wpvdb_process_fallback_queue() {
     $queue->process_fallback_queue(10); // Process 10 items at a time
 }
 add_action('wpvdb_process_fallback_queue', 'wpvdb_process_fallback_queue');
+
+// Add vector index to existing tables during plugin updates
+add_action('plugins_loaded', function() {
+    // Get current plugin version
+    $current_version = get_option('wpvdb_version', '0.0.0');
+    
+    // If version has changed, run update procedures
+    if (version_compare($current_version, WPVDB_VERSION, '<')) {
+        // Add vector index to existing tables
+        \WPVDB\Activation::add_vector_index_to_existing_table();
+        
+        // Update stored version
+        update_option('wpvdb_version', WPVDB_VERSION);
+    }
+});

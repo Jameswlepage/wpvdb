@@ -93,11 +93,12 @@ class Query {
                     $distance_function = Database::get_vector_distance_function('embedding', $vector_function, 'cosine');
                     error_log('[WPVDB DEBUG] Using distance function: ' . $distance_function);
                     
+                    // Optimized query that will use the vector index
+                    // The ORDER BY + LIMIT pattern is what triggers the vector index usage
                     $sql = $wpdb->prepare("
                         SELECT doc_id,
                             $distance_function as distance
                         FROM $table_name
-                        GROUP BY doc_id
                         ORDER BY distance
                         LIMIT %d
                     ", $limit * 3 // fetch more candidates than needed

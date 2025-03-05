@@ -114,7 +114,8 @@
                         }
                         error_log('[WPVDB DEBUG] Using distance function: ' . $distance_function);
                         
-                        // Create the SQL query with the vector function correctly included
+                        // Optimized query that will use the vector index
+                        // The ORDER BY + LIMIT pattern is what triggers the vector index usage
                         $sql = $wpdb->prepare(
                             "SELECT e.*, 
                             $distance_function as distance

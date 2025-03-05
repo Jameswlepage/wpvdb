@@ -99,7 +99,10 @@
                         <td><?php echo esc_html($system_info['post_max_size']); ?></td>
                     </tr>
                     <tr>
-                        <th><?php esc_html_e('MySQL Version', 'wpvdb'); ?></th>
+                        <th><?php 
+                            $db_type = \WPVDB\Database::get_db_type();
+                            echo esc_html(ucfirst($db_type) . ' ' . __('Version', 'wpvdb')); 
+                        ?></th>
                         <td><?php echo isset($system_info['mysql_version']) ? esc_html($system_info['mysql_version']) : esc_html__('Not available', 'wpvdb'); ?></td>
                     </tr>
                     <tr>

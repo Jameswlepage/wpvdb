@@ -62,17 +62,32 @@ class Activation {
                 // Get the appropriate column type from Database class
                 $vector_column_type = Database::get_embedding_column_type($dimensions);
                 
-                // Create table with VECTOR type but without VECTOR INDEX (not supported in MySQL 9.2)
-                $sql = "CREATE TABLE IF NOT EXISTS {$table_name} (
-                    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-                    doc_id BIGINT UNSIGNED NOT NULL,
-                    chunk_id VARCHAR(100) NOT NULL,
-                    chunk_content LONGTEXT NOT NULL,
-                    embedding $vector_column_type NOT NULL,
-                    summary LONGTEXT NULL,
-                    PRIMARY KEY (id),
-                    INDEX (doc_id)
-                ) $charset_collate;";
+                // Create table with VECTOR type and VECTOR INDEX for MariaDB
+                if (Database::get_db_type() === 'mariadb') {
+                    $sql = "CREATE TABLE IF NOT EXISTS {$table_name} (
+                        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+                        doc_id BIGINT UNSIGNED NOT NULL,
+                        chunk_id VARCHAR(100) NOT NULL,
+                        chunk_content LONGTEXT NOT NULL,
+                        embedding $vector_column_type NOT NULL,
+                        summary LONGTEXT NULL,
+                        PRIMARY KEY (id),
+                        INDEX (doc_id),
+                        VECTOR INDEX (embedding) M=16 DISTANCE=cosine
+                    ) $charset_collate;";
+                } else {
+                    // MySQL doesn't support VECTOR INDEX in CREATE TABLE
+                    $sql = "CREATE TABLE IF NOT EXISTS {$table_name} (
+                        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+                        doc_id BIGINT UNSIGNED NOT NULL,
+                        chunk_id VARCHAR(100) NOT NULL,
+                        chunk_content LONGTEXT NOT NULL,
+                        embedding $vector_column_type NOT NULL,
+                        summary LONGTEXT NULL,
+                        PRIMARY KEY (id),
+                        INDEX (doc_id)
+                    ) $charset_collate;";
+                }
                 
                 require_once ABSPATH . 'wp-admin/includes/upgrade.php';
                 dbDelta($sql);
@@ -172,17 +187,32 @@ class Activation {
                 // Get the appropriate column type from Database class
                 $vector_column_type = Database::get_embedding_column_type($dimensions);
                 
-                // Create table with VECTOR type but without VECTOR INDEX (not supported in MySQL 9.2)
-                $sql = "CREATE TABLE {$table_name} (
-                    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-                    doc_id BIGINT UNSIGNED NOT NULL,
-                    chunk_id VARCHAR(100) NOT NULL,
-                    chunk_content LONGTEXT NOT NULL,
-                    embedding {$vector_column_type} NOT NULL,
-                    summary LONGTEXT NULL,
-                    PRIMARY KEY (id),
-                    INDEX (doc_id)
-                ) {$charset_collate};";
+                // Create table with VECTOR type and VECTOR INDEX for MariaDB
+                if (Database::get_db_type() === 'mariadb') {
+                    $sql = "CREATE TABLE {$table_name} (
+                        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+                        doc_id BIGINT UNSIGNED NOT NULL,
+                        chunk_id VARCHAR(100) NOT NULL,
+                        chunk_content LONGTEXT NOT NULL,
+                        embedding {$vector_column_type} NOT NULL,
+                        summary LONGTEXT NULL,
+                        PRIMARY KEY (id),
+                        INDEX (doc_id),
+                        VECTOR INDEX (embedding) M=16 DISTANCE=cosine
+                    ) {$charset_collate};";
+                } else {
+                    // MySQL doesn't support VECTOR INDEX in CREATE TABLE
+                    $sql = "CREATE TABLE {$table_name} (
+                        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+                        doc_id BIGINT UNSIGNED NOT NULL,
+                        chunk_id VARCHAR(100) NOT NULL,
+                        chunk_content LONGTEXT NOT NULL,
+                        embedding {$vector_column_type} NOT NULL,
+                        summary LONGTEXT NULL,
+                        PRIMARY KEY (id),
+                        INDEX (doc_id)
+                    ) {$charset_collate};";
+                }
                 
                 $result = $wpdb->query($sql);
                 
@@ -222,5 +252,16 @@ class Activation {
         ini_set('display_errors', $old_display_errors);
         
         return ($wpdb->get_var("SHOW TABLES LIKE '{$table_name}'") === $table_name);
+    }
+
+    /**
+     * Add vector index to existing table if it doesn't have one
+     * This is called during plugin updates to optimize performance
+     * 
+     * @return bool True if index was added or already exists, false on failure
+     */
+    public static function add_vector_index_to_existing_table() {
+        // Use the Database class method to add the vector index
+        return Database::add_vector_index(16, 'cosine');
     }
 }

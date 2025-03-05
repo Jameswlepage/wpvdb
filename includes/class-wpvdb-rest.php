@@ -352,6 +352,8 @@ class REST {
                     $distance_function = Database::get_vector_distance_function('embedding', $vector_function, 'cosine');
                     error_log('[WPVDB DEBUG] Using distance function: ' . $distance_function);
                     
+                    // Optimized query that will use the vector index
+                    // The ORDER BY + LIMIT pattern is what triggers the vector index usage
                     $sql = $wpdb->prepare("
                         SELECT 
                             id, doc_id, chunk_id, chunk_content, summary,

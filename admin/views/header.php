@@ -155,6 +155,7 @@ switch ($tab) {
             'post_max_size' => ini_get('post_max_size'),
             'max_input_vars' => ini_get('max_input_vars'),
             'mysql_version' => $wpdb->db_version(),
+            'db_type' => \WPVDB\Database::get_db_type(),
             'curl_version' => function_exists('curl_version') ? curl_version()['version'] : __('Not available', 'wpvdb'),
             'openai_api_key_set' => !empty(isset($settings['openai']['api_key']) ? $settings['openai']['api_key'] : ''),
             'automattic_api_key_set' => !empty(isset($settings['automattic']['api_key']) ? $settings['automattic']['api_key'] : ''),

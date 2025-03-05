@@ -391,4 +391,61 @@ class Database {
         
         return $result;
     }
+
+    /**
+     * Add a VECTOR INDEX to the embeddings table if it doesn't already exist
+     * This significantly improves performance for vector searches with large datasets
+     * 
+     * @param int $m_value The M parameter for HNSW algorithm (3-200, default 16)
+     * @param string $distance_type The distance type ('cosine' or 'euclidean')
+     * @return bool True if index was added or already exists, false on failure
+     */
+    public static function add_vector_index($m_value = 16, $distance_type = 'cosine') {
+        global $wpdb;
+        $table_name = $wpdb->prefix . 'wpvdb_embeddings';
+        
+        // Only proceed if we have vector support and using MariaDB
+        if (!self::has_native_vector_support() || self::get_db_type() !== 'mariadb') {
+            error_log('[WPVDB DEBUG] Cannot add vector index: Vector support not available or not using MariaDB');
+            return false;
+        }
+        
+        try {
+            // Validate parameters
+            $m_value = max(3, min(200, intval($m_value)));
+            $distance_type = in_array(strtolower($distance_type), ['cosine', 'euclidean']) ? strtolower($distance_type) : 'cosine';
+            
+            // Check if table exists
+            if ($wpdb->get_var("SHOW TABLES LIKE '$table_name'") !== $table_name) {
+                error_log('[WPVDB ERROR] Cannot add vector index: Table does not exist');
+                return false;
+            }
+            
+            // Check if vector index already exists
+            $index_exists = false;
+            $indexes = $wpdb->get_results("SHOW INDEX FROM $table_name WHERE Key_name = 'embedding'");
+            
+            if (!empty($indexes)) {
+                error_log('[WPVDB DEBUG] Vector index already exists on table');
+                return true; // Index already exists
+            }
+            
+            // Add the vector index
+            $sql = "ALTER TABLE $table_name ADD VECTOR INDEX (embedding) M=$m_value DISTANCE=$distance_type";
+            error_log('[WPVDB DEBUG] Adding vector index with SQL: ' . $sql);
+            
+            $result = $wpdb->query($sql);
+            
+            if ($result === false) {
+                error_log('[WPVDB ERROR] Failed to add vector index: ' . $wpdb->last_error);
+                return false;
+            }
+            
+            error_log('[WPVDB DEBUG] Successfully added vector index to embeddings table');
+            return true;
+        } catch (\Exception $e) {
+            error_log('[WPVDB ERROR] Exception in add_vector_index: ' . $e->getMessage());
+            return false;
+        }
+    }
 } 
