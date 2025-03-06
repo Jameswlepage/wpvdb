@@ -109,9 +109,30 @@ class Settings {
     
     /**
      * Check if summarization is enabled
+     * 
+     * @return bool Whether summarization is enabled
      */
     public static function is_summarization_enabled() {
         $settings = get_option('wpvdb_settings', []);
-        return isset($settings['enable_summarization']) ? (bool)$settings['enable_summarization'] : false;
+        return isset($settings['enable_summarization']) && $settings['enable_summarization'] === '1';
+    }
+    
+    /**
+     * Get the batch size for queue processing
+     * 
+     * @return int Batch size (between 1 and 50)
+     */
+    public static function get_batch_size() {
+        $settings = get_option('wpvdb_settings', []);
+        $batch_size = isset($settings['queue_batch_size']) ? absint($settings['queue_batch_size']) : 10;
+        
+        // Ensure a reasonable value
+        if ($batch_size < 1) {
+            $batch_size = 1;
+        } else if ($batch_size > 50) {
+            $batch_size = 50;
+        }
+        
+        return $batch_size;
     }
 } 

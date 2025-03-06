@@ -204,6 +204,7 @@ class Admin {
                 'pending_provider' => '',
                 'pending_model' => '',
                 'require_auth' => 1, // Require authentication by default
+                'queue_batch_size' => 10, // Default batch size for queue processing
             ];
             
             add_option('wpvdb_settings', $default_settings);
@@ -1282,9 +1283,8 @@ class Admin {
         
         $model = '';
         if ($provider === 'openai') {
-            $model = isset($settings['active_model']) && !empty($settings['active_model']) ? 
-                    $settings['active_model'] : 'text-embedding-3-small';
-        } else if ($provider === 'automattic') {
+            $model = isset($settings['active_model']) && !empty($settings['active_model']) ? $settings['active_model'] : 'text-embedding-3-small';
+        } elseif ($provider === 'automattic') {
             $model = isset($settings['active_model']) && !empty($settings['active_model']) ? 
                     $settings['active_model'] : 'a8cai-embeddings-small-1';
         }
@@ -1308,7 +1308,6 @@ class Admin {
      */
     public static function ajax_test_embedding() {
         check_ajax_referer('wpvdb-admin', 'nonce');
-        
         if (!current_user_can('manage_options')) {
             wp_send_json_error(['message' => __('You do not have permission to perform this action.', 'wpvdb')]);
         }
@@ -1692,18 +1691,24 @@ class Admin {
                       'a8cai-embeddings-small-1');
         }
         
-        // Queue posts for background processing
-        $queue = new WPVDB_Queue();
-        
+        // Prepare items for batch processing
+        $batch_items = [];
         foreach ($post_ids as $post_id) {
-            $queue->push_to_queue([
+            $batch_items[] = [
                 'post_id' => $post_id,
                 'model' => $model,
                 'provider' => $provider,
-            ]);
+            ];
         }
         
-        $queue->save()->dispatch();
+        // Queue posts for batch processing
+        $queue = new WPVDB_Queue();
+        $queue->push_batch_to_queue($batch_items);
+        
+        // Try to run the first batch immediately
+        if (function_exists('as_enqueue_async_action')) {
+            as_enqueue_async_action('wpvdb_run_queue_now', [], 'wpvdb');
+        }
         
         // Add the processed count to the redirect URL
         $redirect_to = add_query_arg(

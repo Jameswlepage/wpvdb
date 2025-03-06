@@ -10,9 +10,14 @@ defined('ABSPATH') || exit;
 class WPVDB_Queue {
     
     /**
-     * Action hook name
+     * Action hook name for processing single items
      */
     const PROCESS_SINGLE_ACTION = 'wpvdb_process_embedding';
+    
+    /**
+     * Action hook name for batch processing
+     */
+    const PROCESS_BATCH_ACTION = 'wpvdb_process_embedding_batch';
     
     /**
      * Option name for fallback queue
@@ -20,12 +25,18 @@ class WPVDB_Queue {
     const FALLBACK_QUEUE_OPTION = 'wpvdb_embedding_queue';
     
     /**
+     * Default batch size for processing
+     */
+    const DEFAULT_BATCH_SIZE = 10;
+    
+    /**
      * Add item to queue
      *
      * @param mixed $data Data to add to queue
+     * @param bool $batch Whether to use batch processing
      * @return $this
      */
-    public function push_to_queue($data) {
+    public function push_to_queue($data, $batch = false) {
         // Use Action Scheduler if available
         if (function_exists('wpvdb_has_action_scheduler') && wpvdb_has_action_scheduler()) {
             // Note: we use the global function, not namespaced
@@ -38,6 +49,43 @@ class WPVDB_Queue {
         } else {
             // Fallback to WP Cron
             $this->add_to_fallback_queue($data);
+        }
+        
+        return $this;
+    }
+    
+    /**
+     * Add multiple items to queue for batch processing
+     *
+     * @param array $items Array of items to add to queue
+     * @return $this
+     */
+    public function push_batch_to_queue($items) {
+        if (empty($items) || !is_array($items)) {
+            return $this;
+        }
+        
+        // Use Action Scheduler if available
+        if (function_exists('wpvdb_has_action_scheduler') && wpvdb_has_action_scheduler()) {
+            // Get batch size from settings or use default
+            $batch_size = self::get_batch_size();
+            
+            // Split items into batches
+            $batches = array_chunk($items, $batch_size);
+            
+            foreach ($batches as $index => $batch) {
+                as_schedule_single_action(
+                    time() + $index, // Stagger slightly to avoid conflicts
+                    self::PROCESS_BATCH_ACTION,
+                    [$batch],
+                    'wpvdb' // Group name
+                );
+            }
+        } else {
+            // Fallback to WP Cron - add each item individually
+            foreach ($items as $data) {
+                $this->add_to_fallback_queue($data);
+            }
         }
         
         return $this;
@@ -115,7 +163,8 @@ class WPVDB_Queue {
     public function dispatch() {
         // For development environments, force run the scheduler immediately
         if (function_exists('as_has_scheduled_action') && 
-            as_has_scheduled_action(self::PROCESS_SINGLE_ACTION, null, 'wpvdb')) {
+            (as_has_scheduled_action(self::PROCESS_SINGLE_ACTION, null, 'wpvdb') || 
+             as_has_scheduled_action(self::PROCESS_BATCH_ACTION, null, 'wpvdb'))) {
             
             // If we're in the admin and actions are pending, try to run immediately
             if (is_admin() && class_exists('\ActionScheduler_QueueRunner')) {
@@ -136,6 +185,7 @@ class WPVDB_Queue {
         // Extract data from item
         $post_id = isset($item['post_id']) ? absint($item['post_id']) : 0;
         $model = isset($item['model']) ? sanitize_text_field($item['model']) : Settings::get_default_model();
+        $provider = isset($item['provider']) ? sanitize_text_field($item['provider']) : '';
         
         if (!$post_id) {
             Core::log_error('Invalid post ID in queue task', ['item' => $item]);
@@ -179,7 +229,113 @@ class WPVDB_Queue {
         }
         
         // Generate and store embeddings for the post
-        return self::process_post($post, $model);
+        return self::process_post($post, $model, $provider);
+    }
+    
+    /**
+     * Process a batch of queue items
+     * 
+     * @param array $items Array of queue items
+     * @return array Results array with post IDs as keys and success status as values
+     */
+    public static function process_batch($items) {
+        if (empty($items) || !is_array($items)) {
+            return [];
+        }
+        
+        $results = [];
+        
+        foreach ($items as $item) {
+            $post_id = isset($item['post_id']) ? absint($item['post_id']) : 0;
+            $success = self::process_item($item);
+            $results[$post_id] = $success;
+            
+            // Schedule the next batch to run immediately after this one completes
+            self::maybe_process_next_batch();
+        }
+        
+        return $results;
+    }
+    
+    /**
+     * Check for and process the next batch in the queue
+     */
+    public static function maybe_process_next_batch() {
+        if (function_exists('as_get_scheduled_actions')) {
+            $actions = as_get_scheduled_actions([
+                'hook' => self::PROCESS_BATCH_ACTION,
+                'status' => \ActionScheduler_Store::STATUS_PENDING,
+                'per_page' => 1,
+                'orderby' => 'date',
+                'order' => 'ASC'
+            ]);
+            
+            if (!empty($actions)) {
+                $action = reset($actions);
+                $action_id = $action->get_id();
+                $args = $action->get_args();
+                
+                // Remove this action from the queue to avoid duplicate processing
+                as_unschedule_action(self::PROCESS_BATCH_ACTION, $args, 'wpvdb');
+                
+                // Process the batch
+                self::process_batch($args[0]);
+            } else {
+                // Check for single actions
+                self::maybe_process_next_single();
+            }
+        }
+    }
+    
+    /**
+     * Check for and process the next single item in the queue
+     */
+    public static function maybe_process_next_single() {
+        if (function_exists('as_get_scheduled_actions')) {
+            $actions = as_get_scheduled_actions([
+                'hook' => self::PROCESS_SINGLE_ACTION,
+                'status' => \ActionScheduler_Store::STATUS_PENDING,
+                'per_page' => self::get_batch_size(),
+                'orderby' => 'date',
+                'order' => 'ASC'
+            ]);
+            
+            if (!empty($actions)) {
+                $batch_items = [];
+                
+                foreach ($actions as $action) {
+                    $action_id = $action->get_id();
+                    $args = $action->get_args();
+                    
+                    // Add to our batch
+                    if (!empty($args[0])) {
+                        $batch_items[] = $args[0];
+                    }
+                    
+                    // Remove this action from the queue to avoid duplicate processing
+                    as_unschedule_action(self::PROCESS_SINGLE_ACTION, $args, 'wpvdb');
+                    
+                    // If we've reached our batch size, stop
+                    if (count($batch_items) >= self::get_batch_size()) {
+                        break;
+                    }
+                }
+                
+                // Process the collected items as a batch
+                if (!empty($batch_items)) {
+                    self::process_batch($batch_items);
+                }
+            }
+        }
+    }
+    
+    /**
+     * Get the batch size from settings or use default
+     * 
+     * @return int Batch size
+     */
+    public static function get_batch_size() {
+        return Settings::get_batch_size();
     }
     
     /**
@@ -187,9 +343,10 @@ class WPVDB_Queue {
      *
      * @param \WP_Post $post
      * @param string $model
+     * @param string $provider
      * @return bool Success status
      */
-    private static function process_post($post, $model) {
+    private static function process_post($post, $model, $provider = '') {
         // Get API key
         $api_key = Settings::get_api_key();
         if (empty($api_key)) {

@@ -349,7 +349,24 @@ class Core {
         $queue->push_to_queue([
             'post_id' => $post_id,
             'model' => Settings::get_default_model(),
+            'provider' => self::get_active_provider(),
         ]);
-        $queue->save()->dispatch();
+        
+        // Try to run the queue immediately if we're in the admin
+        if (is_admin() && function_exists('as_enqueue_async_action')) {
+            as_enqueue_async_action('wpvdb_run_queue_now', [], 'wpvdb');
+        }
+    }
+    
+    /**
+     * Get the active provider from settings
+     * 
+     * @return string The active provider (openai or automattic)
+     */
+    private static function get_active_provider() {
+        $settings = get_option('wpvdb_settings', []);
+        return isset($settings['active_provider']) && !empty($settings['active_provider']) 
+            ? $settings['active_provider'] 
+            : 'openai';
     }
 }

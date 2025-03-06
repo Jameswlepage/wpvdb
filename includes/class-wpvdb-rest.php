@@ -745,31 +745,26 @@ class REST {
         $provider = !empty($settings['active_provider']) ? $settings['active_provider'] : 'openai';
         $model = !empty($settings['active_model']) ? $settings['active_model'] : 'text-embedding-3-small';
         
-        // Queue for processing
-        $queue = new \WPVDB\WPVDB_Queue();
-        $queue->push_to_queue([
+        // Prepare item for processing
+        $item = [
             'post_id' => $post_id,
             'model' => $model,
             'provider' => $provider,
-        ]);
+        ];
         
-        $queue->save()->dispatch();
+        // Queue for processing
+        $queue = new \WPVDB\WPVDB_Queue();
+        $queue->push_to_queue($item);
         
         // Force Action Scheduler to run the task immediately
-        if (function_exists('as_schedule_single_action') && function_exists('as_enqueue_async_action')) {
+        if (function_exists('as_enqueue_async_action')) {
             as_enqueue_async_action('wpvdb_run_queue_now', [], 'wpvdb');
         }
         
         // For development environments, process the queue immediately
         if (defined('WP_DEBUG') && WP_DEBUG) {
-            // Get the action ID that was just scheduled 
-            $option_key = 'wpvdb_process_embedding';
-            $queue_id = get_option($option_key);
-            
-            if ($queue_id) {
-                // Run the action directly to bypass the scheduler
-                do_action('wpvdb_process_embedding', $queue_id);
-            }
+            // Process the item directly
+            \WPVDB\WPVDB_Queue::process_item($item);
         }
         
         return rest_ensure_response([
