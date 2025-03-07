@@ -18,7 +18,7 @@
 defined('ABSPATH') || exit; // No direct access.
 
 // Define plugin version and constants.
-define('WPVDB_VERSION', '1.0.2');
+define('WPVDB_VERSION', '1.0.4');
 define('WPVDB_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('WPVDB_PLUGIN_URL', plugin_dir_url(__FILE__));
 

@@ -165,9 +165,16 @@ jQuery(document).ready(function($) {
      * Status Page - Provider Change Confirmation
      */
     if (window.location.href.indexOf('page=wpvdb-status') > -1) {
+        console.log('WPVDB Status page detected - initializing provider change handlers');
+        
+        // Debug - check if elements exist
+        console.log('Cancel button exists:', $('#wpvdb-cancel-provider-change').length > 0);
+        console.log('Apply button exists:', $('#wpvdb-apply-provider-change').length > 0);
+        
         // Handle provider change confirmation
         $('#wpvdb-apply-provider-change, #wpvdb-apply-provider-change-tool').on('click', function(e) {
             e.preventDefault();
+            console.log('Apply button clicked');
             
             if (confirm('This will delete all existing embeddings and activate the new provider. Are you sure you want to continue?')) {
                 $.ajax({
@@ -201,8 +208,16 @@ jQuery(document).ready(function($) {
         // Handle provider change cancellation
         $('#wpvdb-cancel-provider-change, #wpvdb-cancel-provider-change-tool').on('click', function(e) {
             e.preventDefault();
+            console.log('Cancel button clicked');
+            console.log('Button ID:', this.id);
+            console.log('Button HTML:', $(this).prop('outerHTML'));
             
             if (confirm('This will cancel the pending provider change. Are you sure?')) {
+                console.log('User confirmed cancel');
+                console.log('AJAX URL:', wpvdb.ajaxUrl);
+                console.log('Nonce available:', !!wpvdb.nonce);
+                console.log('Full wpvdb object:', wpvdb);
+                
                 $.ajax({
                     url: wpvdb.ajaxUrl,
                     type: 'POST',
@@ -212,9 +227,16 @@ jQuery(document).ready(function($) {
                         cancel: 'true'
                     },
                     beforeSend: function() {
+                        console.log('Sending AJAX request to cancel provider change');
+                        console.log('Request data:', {
+                            action: 'wpvdb_confirm_provider_change',
+                            nonce: wpvdb.nonce,
+                            cancel: 'true'
+                        });
                         $('#wpvdb-cancel-provider-change, #wpvdb-cancel-provider-change-tool').prop('disabled', true).text('Processing...');
                     },
                     success: function(response) {
+                        console.log('AJAX response received:', response);
                         if (response.success) {
                             alert(response.data.message);
                             location.reload();
@@ -223,7 +245,8 @@ jQuery(document).ready(function($) {
                             $('#wpvdb-cancel-provider-change, #wpvdb-cancel-provider-change-tool').prop('disabled', false).text('Cancel Change');
                         }
                     },
-                    error: function() {
+                    error: function(xhr, status, error) {
+                        console.error('AJAX error:', status, error);
                         alert('An error occurred while cancelling the provider change.');
                         $('#wpvdb-cancel-provider-change, #wpvdb-cancel-provider-change-tool').prop('disabled', false).text('Cancel Change');
                     }

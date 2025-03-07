@@ -25,9 +25,9 @@
             <a href="#" id="wpvdb-apply-provider-change" class="button button-primary">
                 <?php esc_html_e('Apply Change & Clear Embeddings', 'wpvdb'); ?>
             </a>
-            <a href="#" id="wpvdb-cancel-provider-change" class="button">
+            <button type="button" id="wpvdb-cancel-provider-change" class="button" onclick="cancelProviderChange(event)">
                 <?php esc_html_e('Cancel Change', 'wpvdb'); ?>
-            </a>
+            </button>
         </div>
     </div>
     <?php endif; ?>
@@ -308,9 +308,9 @@
                 <a href="#" id="wpvdb-apply-provider-change-tool" class="button button-primary">
                     <?php esc_html_e('Apply Change', 'wpvdb'); ?>
                 </a>
-                <a href="#" id="wpvdb-cancel-provider-change-tool" class="button">
+                <button type="button" id="wpvdb-cancel-provider-change-tool" class="button" onclick="cancelProviderChange(event)">
                     <?php esc_html_e('Cancel Change', 'wpvdb'); ?>
-                </a>
+                </button>
             </div>
             <?php endif; ?>
             
@@ -780,5 +780,45 @@ mark.error {
         </div>
     </div>
 </div>
+
+<script type="text/javascript">
+function cancelProviderChange(e) {
+    e.preventDefault();
+    console.log('Cancel button clicked via inline handler');
+    
+    if (confirm('This will cancel the pending provider change. Are you sure?')) {
+        console.log('User confirmed cancel via inline handler');
+        
+        jQuery.ajax({
+            url: '<?php echo admin_url('admin-ajax.php'); ?>',
+            type: 'POST',
+            data: {
+                action: 'wpvdb_confirm_provider_change',
+                nonce: '<?php echo wp_create_nonce('wpvdb-admin'); ?>',
+                cancel: 'true'
+            },
+            beforeSend: function() {
+                console.log('Sending AJAX request to cancel provider change via inline handler');
+                jQuery('#wpvdb-cancel-provider-change, #wpvdb-cancel-provider-change-tool').prop('disabled', true).text('Processing...');
+            },
+            success: function(response) {
+                console.log('AJAX response received:', response);
+                if (response.success) {
+                    alert(response.data.message);
+                    location.reload();
+                } else {
+                    alert('Error: ' + response.data.message);
+                    jQuery('#wpvdb-cancel-provider-change, #wpvdb-cancel-provider-change-tool').prop('disabled', false).text('Cancel Change');
+                }
+            },
+            error: function(xhr, status, error) {
+                console.error('AJAX error:', status, error);
+                alert('An error occurred while cancelling the provider change.');
+                jQuery('#wpvdb-cancel-provider-change, #wpvdb-cancel-provider-change-tool').prop('disabled', false).text('Cancel Change');
+            }
+        });
+    }
+}
+</script>
 
 </div> <!-- End of wrap --> 

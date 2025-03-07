@@ -638,7 +638,7 @@ class Admin {
      * Enqueue assets for the admin screens
      */
     public static function enqueue_admin_assets($hook) {
-        $admin_pages = ['toplevel_page_wpvdb-dashboard', 'wpvdb_page_wpvdb-embeddings', 'wpvdb_page_wpvdb-settings'];
+        $admin_pages = ['toplevel_page_wpvdb-dashboard', 'wpvdb_page_wpvdb-embeddings', 'wpvdb_page_wpvdb-settings', 'wpvdb_page_wpvdb-status'];
         
         // Only load our assets on our admin pages
         if (!in_array($hook, $admin_pages)) {
@@ -677,17 +677,17 @@ class Admin {
         }
         
         // Common data for admin scripts
-        wp_localize_script('wpvdb-admin', 'wpvdb', [
+        wp_localize_script('wpvdb-admin', 'wpvdb', array(
             'ajaxUrl' => admin_url('admin-ajax.php'),
             'nonce' => wp_create_nonce('wpvdb-admin'),
             'version' => WPVDB_VERSION,
-            'strings' => [
+            'strings' => array(
                 'confirmDelete' => __('Are you sure you want to delete this embedding?', 'wpvdb'),
                 'processing' => __('Processing...', 'wpvdb'),
                 'complete' => __('Complete!', 'wpvdb'),
                 'error' => __('Error:', 'wpvdb'),
-            ]
-        ]);
+            )
+        ));
     }
     
     /**
@@ -730,8 +730,19 @@ class Admin {
             wp_send_json_error(['message' => __('Permission denied', 'wpvdb')]);
         }
         
-        // Check for both string 'true' and boolean true values
-        $cancel = isset($_POST['cancel']) && ($_POST['cancel'] === 'true' || $_POST['cancel'] === true);
+        // Debug - log the request
+        error_log('WPVDB: Confirm provider change request received');
+        error_log('WPVDB: POST data: ' . print_r($_POST, true));
+        
+        // Check for cancel parameter in various formats
+        $cancel = false;
+        if (isset($_POST['cancel'])) {
+            if ($_POST['cancel'] === 'true' || $_POST['cancel'] === true || $_POST['cancel'] === '1' || $_POST['cancel'] === 1) {
+                $cancel = true;
+            }
+        }
+        error_log('WPVDB: Cancel flag: ' . ($cancel ? 'true' : 'false'));
+        
         $settings = get_option('wpvdb_settings', []);
         
         // Ensure settings is an array
@@ -769,6 +780,9 @@ class Admin {
         
         if ($cancel) {
             // User wants to cancel the pending change
+            error_log('WPVDB: Cancelling pending provider change');
+            error_log('WPVDB: Current settings: ' . print_r($settings, true));
+            
             $settings['provider'] = $settings['active_provider'];
             if ($settings['active_provider'] === 'openai') {
                 $settings['openai']['default_model'] = $settings['active_model'];
@@ -781,6 +795,7 @@ class Admin {
             $settings['pending_model'] = '';
             
             update_option('wpvdb_settings', $settings);
+            error_log('WPVDB: Updated settings: ' . print_r($settings, true));
             
             wp_send_json_success([
                 'message' => __('Provider change cancelled', 'wpvdb'),
@@ -1332,8 +1347,7 @@ class Admin {
         if ($provider === 'openai') {
             $model = isset($settings['active_model']) && !empty($settings['active_model']) ? $settings['active_model'] : 'text-embedding-3-small';
         } elseif ($provider === 'automattic') {
-            $model = isset($settings['active_model']) && !empty($settings['active_model']) ? 
-                    $settings['active_model'] : 'a8cai-embeddings-small-1';
+            $model = isset($settings['active_model']) && !empty($settings['active_model']) ? $settings['active_model'] : 'a8cai-embeddings-small-1';
         }
         
         // Queue for re-embedding
