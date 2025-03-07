@@ -423,26 +423,56 @@
                 <div class="wpvdb-form-group">
                     <label for="wpvdb-provider"><?php esc_html_e('Provider', 'wpvdb'); ?></label>
                     <select id="wpvdb-provider" name="provider">
-                        <option value="openai"><?php esc_html_e('OpenAI', 'wpvdb'); ?></option>
-                        <option value="automattic"><?php esc_html_e('Automattic AI', 'wpvdb'); ?></option>
+                        <?php 
+                        $providers = \WPVDB\Providers::get_available_providers();
+                        foreach ($providers as $provider_id => $provider) {
+                            echo '<option value="' . esc_attr($provider_id) . '">' . esc_html($provider['label']) . '</option>';
+                        }
+                        ?>
                     </select>
                 </div>
                 
-                <div class="wpvdb-form-group" id="openai-models">
-                    <label for="wpvdb-openai-model"><?php esc_html_e('OpenAI Model', 'wpvdb'); ?></label>
-                    <select id="wpvdb-openai-model" name="openai_model">
-                        <option value="text-embedding-3-small">text-embedding-3-small</option>
-                        <option value="text-embedding-3-large">text-embedding-3-large</option>
-                        <option value="text-embedding-ada-002">text-embedding-ada-002 (Legacy)</option>
+                <div class="wpvdb-form-group" id="wpvdb-bulk-models">
+                    <label for="wpvdb-model"><?php esc_html_e('Model', 'wpvdb'); ?></label>
+                    <select id="wpvdb-model" name="model">
+                        <?php 
+                        // Get models for the first provider
+                        $first_provider = reset($providers);
+                        $first_provider_id = key($providers);
+                        $provider_models = \WPVDB\Models::get_provider_models($first_provider_id);
+                        
+                        foreach ($provider_models as $model_id => $model) {
+                            echo '<option value="' . esc_attr($model_id) . '">' . esc_html($model['label']) . '</option>';
+                        }
+                        ?>
                     </select>
                 </div>
                 
-                <div class="wpvdb-form-group" id="automattic-models" style="display:none;">
-                    <label for="wpvdb-automattic-model"><?php esc_html_e('Automattic Model', 'wpvdb'); ?></label>
-                    <select id="wpvdb-automattic-model" name="automattic_model">
-                        <option value="text-embedding-ada-002">text-embedding-ada-002</option>
-                    </select>
-                </div>
+                <script type="text/javascript">
+                // Store all models data for dynamic switching
+                var wpvdbBulkModels = <?php echo json_encode(\WPVDB\Models::get_available_models()); ?>;
+                
+                jQuery(document).ready(function($) {
+                    // Update models when provider changes
+                    $('#wpvdb-provider').on('change', function() {
+                        var providerId = $(this).val();
+                        var providerModels = wpvdbBulkModels[providerId] || {};
+                        
+                        // Clear current options
+                        $('#wpvdb-model').empty();
+                        
+                        // Add new options
+                        $.each(providerModels, function(modelId, modelData) {
+                            $('#wpvdb-model').append(
+                                $('<option>', {
+                                    value: modelId,
+                                    text: modelData.label
+                                })
+                            );
+                        });
+                    });
+                });
+                </script>
                 
                 <div class="wpvdb-form-actions">
                     <button type="button" id="wpvdb-generate-embeddings-btn" class="button button-primary"><?php esc_html_e('Generate Embeddings', 'wpvdb'); ?></button>

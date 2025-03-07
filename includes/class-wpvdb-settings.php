@@ -75,7 +75,23 @@ class Settings {
      */
     public static function get_api_base() {
         $settings = get_option('wpvdb_settings', []);
-        return isset($settings['api_base']) ? $settings['api_base'] : 'https://api.openai.com/v1/';
+        $provider = isset($settings['active_provider']) ? $settings['active_provider'] : 'openai';
+        
+        // Get the API base from the provider registry
+        $api_base = Providers::get_api_base($provider);
+        
+        // If not found in registry, check settings
+        if (empty($api_base)) {
+            // For Automattic, check the specific endpoint setting
+            if ($provider === 'automattic') {
+                return get_option('wpvdb_automattic_endpoint', 'https://ai-api.wp.com/embeddings');
+            }
+            
+            // For other providers, use the general api_base setting or default to OpenAI
+            return isset($settings['api_base']) ? $settings['api_base'] : 'https://api.openai.com/v1/';
+        }
+        
+        return $api_base;
     }
     
     /**
@@ -84,9 +100,14 @@ class Settings {
     public static function get_default_model() {
         $settings = get_option('wpvdb_settings', []);
         $provider = isset($settings['active_provider']) ? $settings['active_provider'] : 'openai';
-        return isset($settings[$provider]['default_model']) 
-            ? $settings[$provider]['default_model'] 
-            : ($provider === 'openai' ? 'text-embedding-3-small' : 'automattic-embeddings-001');
+        
+        // Check settings first
+        if (isset($settings[$provider]['default_model']) && !empty($settings[$provider]['default_model'])) {
+            return $settings[$provider]['default_model'];
+        }
+        
+        // Otherwise get default from Models registry
+        return Models::get_default_model_for_provider($provider);
     }
     
     /**

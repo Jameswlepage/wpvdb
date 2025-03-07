@@ -1,3 +1,14 @@
+<?php
+// Remove all admin notices on this page
+remove_all_actions('admin_notices');
+remove_all_actions('all_admin_notices');
+
+// Check if form was submitted and redirect
+if (isset($_GET['settings-updated']) && $_GET['settings-updated'] == 'true') {
+    wp_safe_redirect('http://localhost:9081/wp-admin/admin.php?page=wpvdb-settings');
+    exit;
+}
+?>
 <div class="wpvdb-automattic-connect">
     <div class="wpvdb-connect-container">
         <div class="wpvdb-connect-card">
@@ -37,6 +48,9 @@
                         <?php settings_fields('wpvdb_settings'); ?>
                         <input type="hidden" name="wpvdb_settings[provider]" value="automattic">
                         <input type="hidden" name="wpvdb_settings[automattic][default_model]" value="a8cai-embeddings-small-1">
+                        <input type="hidden" name="wpvdb_settings[active_provider]" value="automattic">
+                        <input type="hidden" name="wpvdb_settings[active_model]" value="a8cai-embeddings-small-1">
+                        <input type="hidden" name="_wp_http_referer" value="<?php echo esc_url(admin_url('admin.php?page=wpvdb-automattic-connect')); ?>">
                         
                         <div class="wpvdb-form-group">
                             <label for="wpvdb_automattic_api_key"><?php esc_html_e('API Key', 'wpvdb'); ?></label>
@@ -214,5 +228,20 @@ jQuery(document).ready(function($) {
         $('.wpvdb-connect-manual').slideUp(200);
         $('.wpvdb-manual-link').show();
     });
+    
+    // Handle manual form submission
+    $('#wpvdb-manual-connect-form').on('submit', function(e) {
+        // Let the form submit normally, but store a flag in sessionStorage
+        sessionStorage.setItem('wpvdb_redirect_after_save', '<?php echo esc_url(admin_url("admin.php?page=wpvdb-settings")); ?>');
+    });
+    
+    // Check if we need to redirect after settings are saved
+    if (window.location.href.indexOf('settings-updated=true') > -1) {
+        var redirectUrl = sessionStorage.getItem('wpvdb_redirect_after_save');
+        if (redirectUrl) {
+            sessionStorage.removeItem('wpvdb_redirect_after_save');
+            window.location.href = redirectUrl;
+        }
+    }
 });
 </script> 

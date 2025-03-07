@@ -5,25 +5,66 @@ jQuery(document).ready(function($) {
     
     // Settings page specific functionality - provider fields toggle
     if (window.location.href.indexOf('page=wpvdb-settings') > -1) {
+        console.log('WPVDB Settings page detected - initializing field toggling');
+        
         // Handle API fields visibility regardless of which settings section is active
         function toggleApiFieldsVisibility() {
             var selectedProvider = $('#wpvdb_provider').val();
-            console.log('Direct handler - toggling fields for provider:', selectedProvider);
+            console.log('WPVDB: Toggling fields for provider:', selectedProvider);
+            
+            // Debug output - check which elements we're finding
+            var apiKeyFields = $('tr.api-key-field').length;
+            var modelFields = $('tr.model-field').length;
+            var providerSpecificFields = $('tr.provider-specific-field').length;
+            
+            console.log('WPVDB: Found fields:', {
+                'apiKeyFields': apiKeyFields,
+                'modelFields': modelFields,
+                'providerSpecificFields': providerSpecificFields
+            });
             
             // Hide all provider-specific fields
-            $('tr.api-key-field, tr.model-field').hide();
+            $('tr.api-key-field, tr.model-field, tr.provider-specific-field').hide();
             
             // Show only the selected provider's fields
             $('#' + selectedProvider + '_api_key_field').show();
             $('#' + selectedProvider + '_model_field').show();
+            
+            // Show provider-specific fields with matching data attribute
+            var specificFields = $('tr.provider-specific-field[data-provider="' + selectedProvider + '"]');
+            console.log('WPVDB: Provider-specific fields for ' + selectedProvider + ':', specificFields.length);
+            specificFields.show();
+            
+            // Show generic fields that apply to all providers
+            var genericFields = $('tr.provider-specific-field[data-provider="all"]');
+            console.log('WPVDB: Generic fields for all providers:', genericFields.length);
+            genericFields.show();
         }
         
         // Run on page load
+        console.log('WPVDB: Running toggleApiFieldsVisibility on page load');
         toggleApiFieldsVisibility();
         
-        // Run when provider changes
-        $(document).on('change', '#wpvdb_provider', function() {
+        // Run when provider changes - use a more direct approach
+        console.log('WPVDB: Setting up change handler for #wpvdb_provider');
+        
+        // First remove any existing handlers to avoid duplicates
+        $('#wpvdb_provider').off('change.wpvdb');
+        
+        // Then add our handler with a namespace
+        $('#wpvdb_provider').on('change.wpvdb', function() {
+            console.log('WPVDB: Provider changed to:', $(this).val());
             toggleApiFieldsVisibility();
+        });
+        
+        // Add a direct click handler to ensure the change is detected
+        $('.wpvdb-settings-section').on('click', '#wpvdb_provider', function() {
+            console.log('WPVDB: Provider dropdown clicked');
+            // Set a timeout to check if the value changed after click
+            setTimeout(function() {
+                console.log('WPVDB: Checking if provider changed after click');
+                toggleApiFieldsVisibility();
+            }, 100);
         });
     }
 
@@ -63,9 +104,10 @@ jQuery(document).ready(function($) {
         toggleApiKeyFields();
         
         // Toggle fields when provider changes
-        $('#wpvdb_provider').on('change', function() {
-            toggleApiKeyFields();
-        });
+        // Removed this handler as it's now handled by our main handler
+        // $('#wpvdb_provider').on('change', function() {
+        //     toggleApiKeyFields();
+        // });
         
         // Handle form submission
         $('#wpvdb-settings-form').on('submit', function(e) {
@@ -167,7 +209,7 @@ jQuery(document).ready(function($) {
                     data: {
                         action: 'wpvdb_confirm_provider_change',
                         nonce: wpvdb.nonce,
-                        cancel: true
+                        cancel: 'true'
                     },
                     beforeSend: function() {
                         $('#wpvdb-cancel-provider-change, #wpvdb-cancel-provider-change-tool').prop('disabled', true).text('Processing...');
@@ -199,29 +241,15 @@ jQuery(document).ready(function($) {
             $('.wpvdb-status-message, .wpvdb-embedding-info').empty();
         });
         
-        // Toggle model fields based on selected provider
-        $('#wpvdb-test-provider').on('change', function() {
-            var provider = $(this).val();
-            
-            // Hide all model fields
-            $('#test-openai-models, #test-automattic-models').hide();
-            
-            // Show the selected provider's model field
-            if (provider === 'openai') {
-                $('#test-openai-models').show();
-            } else if (provider === 'automattic') {
-                $('#test-automattic-models').show();
-            }
-        });
+        // Provider and model selection for test embedding is handled by the wpvdbModels script now
         
         // Handle test embedding form submission
         $('#wpvdb-test-embedding-form').on('submit', function(e) {
             e.preventDefault();
             
             var provider = $('#wpvdb-test-provider').val();
-            var model = provider === 'openai' ? 
-                        $('#wpvdb-test-openai-model').val() : 
-                        $('#wpvdb-test-automattic-model').val();
+            // Use the new unified model select
+            var model = $('#wpvdb-test-model').val();
             var text = $('#wpvdb-test-text').val();
             
             if (!text.trim()) {
@@ -282,17 +310,7 @@ jQuery(document).ready(function($) {
      * Embeddings Page Functionality
      */
     if (window.location.href.indexOf('page=wpvdb-embeddings') > -1) {
-        // Toggle model fields based on selected provider in the bulk embed modal
-        $('#wpvdb-provider').on('change', function() {
-            var provider = $(this).val();
-            if (provider === 'openai') {
-                $('#openai-models').show();
-                $('#automattic-models').hide();
-            } else {
-                $('#openai-models').hide();
-                $('#automattic-models').show();
-            }
-        });
+        // Provider and model selection for bulk embed is handled by the wpvdbBulkModels script now
         
         // Open the bulk embed modal
         $('#wpvdb-bulk-embed-button').on('click', function() {
@@ -390,9 +408,7 @@ jQuery(document).ready(function($) {
             var postType = $('#wpvdb-post-type').val();
             var limit = $('#wpvdb-limit').val();
             var provider = $('#wpvdb-provider').val();
-            var model = provider === 'openai' ? 
-                $('#wpvdb-openai-model').val() : 
-                $('#wpvdb-automattic-model').val();
+            var model = $('#wpvdb-model').val();
             
             console.log('%c WPVDB Form Values:', 'background: #f0f0f0; color: #333; font-size: 14px; padding: 5px;', { postType, limit, provider, model });
             

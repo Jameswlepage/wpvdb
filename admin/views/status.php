@@ -429,66 +429,68 @@
                         <?php 
                         $settings = get_option('wpvdb_settings');
                         $current_provider = $settings['provider'] ?? 'openai';
-                        $providers = [
-                            'openai' => __('OpenAI', 'wpvdb'),
-                            'automattic' => __('Automattic AI', 'wpvdb'),
-                        ];
+                        $providers = \WPVDB\Providers::get_available_providers();
                         
-                        foreach ($providers as $id => $name) {
+                        foreach ($providers as $provider_id => $provider) {
                             printf(
                                 '<option value="%s" %s>%s</option>',
-                                esc_attr($id),
-                                selected($current_provider, $id, false),
-                                esc_html($name)
+                                esc_attr($provider_id),
+                                selected($current_provider, $provider_id, false),
+                                esc_html($provider['label'])
                             );
                         }
                         ?>
                     </select>
                 </div>
 
-                <div class="wpvdb-form-group" id="test-openai-models" <?php echo $current_provider !== 'openai' ? 'style="display:none;"' : ''; ?>>
-                    <label for="wpvdb-test-openai-model"><?php esc_html_e('OpenAI Model', 'wpvdb'); ?></label>
-                    <select id="wpvdb-test-openai-model" name="model">
+                <div class="wpvdb-form-group" id="wpvdb-provider-models">
+                    <label for="wpvdb-test-model"><?php esc_html_e('Model', 'wpvdb'); ?></label>
+                    <select id="wpvdb-test-model" name="model">
                         <?php 
-                        $default_model = $settings['openai']['default_model'] ?? 'text-embedding-3-small';
-                        $models = [
-                            'text-embedding-3-small' => 'text-embedding-3-small (Recommended)',
-                            'text-embedding-3-large' => 'text-embedding-3-large (Higher Accuracy)',
-                            'text-embedding-ada-002' => 'text-embedding-ada-002 (Legacy)'
-                        ];
+                        // Get models for current provider
+                        $active_provider = isset($settings['active_provider']) ? $settings['active_provider'] : $current_provider;
+                        $active_model = isset($settings['active_model']) ? $settings['active_model'] : '';
                         
-                        foreach ($models as $model_id => $model_name) {
+                        // Load models for the active provider
+                        $provider_models = \WPVDB\Models::get_provider_models($active_provider);
+                        
+                        foreach ($provider_models as $model_id => $model) {
                             printf(
                                 '<option value="%s" %s>%s</option>',
                                 esc_attr($model_id),
-                                selected($default_model, $model_id, false),
-                                esc_html($model_name)
+                                selected($active_model, $model_id, false),
+                                esc_html($model['label'])
                             );
                         }
                         ?>
                     </select>
                 </div>
-
-                <div class="wpvdb-form-group" id="test-automattic-models" <?php echo $current_provider !== 'automattic' ? 'style="display:none;"' : ''; ?>>
-                    <label for="wpvdb-test-automattic-model"><?php esc_html_e('Automattic Model', 'wpvdb'); ?></label>
-                    <select id="wpvdb-test-automattic-model" name="model">
-                        <?php 
-                        $default_model = $settings['automattic']['default_model'] ?? 'automattic-embeddings-001';
-                        $models = [
-                            'automattic-embeddings-001' => 'automattic-embeddings-001'
-                        ];
+                
+                <script type="text/javascript">
+                // Store all models data for dynamic switching
+                var wpvdbModels = <?php echo json_encode(\WPVDB\Models::get_available_models()); ?>;
+                
+                jQuery(document).ready(function($) {
+                    // Update models when provider changes
+                    $('#wpvdb-test-provider').on('change', function() {
+                        var providerId = $(this).val();
+                        var providerModels = wpvdbModels[providerId] || {};
                         
-                        foreach ($models as $model_id => $model_name) {
-                            printf(
-                                '<option value="%s" %s>%s</option>',
-                                esc_attr($model_id),
-                                selected($default_model, $model_id, false),
-                                esc_html($model_name)
+                        // Clear current options
+                        $('#wpvdb-test-model').empty();
+                        
+                        // Add new options
+                        $.each(providerModels, function(modelId, modelData) {
+                            $('#wpvdb-test-model').append(
+                                $('<option>', {
+                                    value: modelId,
+                                    text: modelData.label
+                                })
                             );
-                        }
-                        ?>
-                    </select>
-                </div>
+                        });
+                    });
+                });
+                </script>
                 
                 <div class="wpvdb-form-group">
                     <label for="wpvdb-test-text"><?php esc_html_e('Text to Embed', 'wpvdb'); ?></label>

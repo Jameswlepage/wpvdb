@@ -130,6 +130,12 @@ class Core {
             return new \WP_Error('embedding_error', 'Empty or null text cannot be embedded.');
         }
         
+        // Allow plugins to provide custom embedding generation
+        $custom_embedding = apply_filters('wpvdb_generate_embedding', null, $text, $model, $api_base, $api_key);
+        if ($custom_embedding !== null) {
+            return $custom_embedding;
+        }
+        
         // Remove newlines (as recommended in many embedding docs).
         $text = str_replace(["\r\n", "\r", "\n"], " ", $text);
 
@@ -172,6 +178,33 @@ class Core {
         }
 
         return $data['data'][0]['embedding'];
+    }
+    
+    /**
+     * Get embedding using registered model and provider details
+     *
+     * @param string $text The text to embed
+     * @param string $model_name The model name
+     * @param string $provider_name The provider name
+     * @return array|WP_Error Embedding vector or error
+     */
+    public static function get_embedding_for_model($text, $model_name, $provider_name) {
+        // Get provider and model details
+        $provider = Providers::get_provider($provider_name);
+        $model = Models::get_model($provider_name, $model_name);
+        
+        if (!$provider || !$model) {
+            return new \WP_Error('invalid_model', 'Invalid provider or model specified');
+        }
+        
+        // Get API key
+        $api_key = Settings::get_provider_api_key($provider_name);
+        
+        // Get the API base URL
+        $api_base = Providers::get_api_base($provider_name);
+        
+        // Call the embedding function
+        return self::get_embedding($text, $model_name, $api_base, $api_key);
     }
 
     // Add a logging function

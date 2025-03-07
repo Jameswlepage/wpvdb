@@ -1,10 +1,17 @@
 <?php
 // Get current settings
+$settings = get_option('wpvdb_settings', []);
 $provider = get_option('wpvdb_provider', 'openai');
 $openai_api_key = get_option('wpvdb_openai_api_key', '');
 $openai_model = get_option('wpvdb_openai_model', 'text-embedding-3-small');
 $automattic_api_key = get_option('wpvdb_automattic_api_key', '');
 $automattic_model = get_option('wpvdb_automattic_model', 'a8cai-embeddings-small-1');
+
+// Get available providers and models from the registry classes
+$available_providers = \WPVDB\Providers::get_available_providers();
+$available_models = \WPVDB\Models::get_available_models();
+
+// Get other settings
 $auto_embed_post_types = get_option('wpvdb_auto_embed_post_types', []);
 $chunk_size = get_option('wpvdb_chunk_size', 200);
 $chunk_overlap = get_option('wpvdb_chunk_overlap', 20);
@@ -17,6 +24,9 @@ $include_featured_image = get_option('wpvdb_include_featured_image', false);
 $include_custom_fields = get_option('wpvdb_include_custom_fields', []);
 $exclude_taxonomies = get_option('wpvdb_exclude_taxonomies', []);
 $exclude_custom_fields = get_option('wpvdb_exclude_custom_fields', []);
+
+// Check if there's a pending provider change
+$has_pending_change = !empty($settings['pending_provider']) || !empty($settings['pending_model']);
 ?>
 
 <div class="wrap wpvdb-settings">
@@ -113,8 +123,9 @@ $exclude_custom_fields = get_option('wpvdb_exclude_custom_fields', []);
                     </th>
                     <td>
                         <select name="wpvdb_provider" id="wpvdb_provider">
-                            <option value="openai" <?php selected($provider, 'openai'); ?>><?php esc_html_e('OpenAI', 'wpvdb'); ?></option>
-                            <option value="automattic" <?php selected($provider, 'automattic'); ?>><?php esc_html_e('Automattic AI', 'wpvdb'); ?></option>
+                            <?php foreach ($available_providers as $provider_id => $provider_data): ?>
+                            <option value="<?php echo esc_attr($provider_id); ?>" <?php selected($provider, $provider_id); ?>><?php echo esc_html($provider_data['label']); ?></option>
+                            <?php endforeach; ?>
                         </select>
                         <p class="description"><?php esc_html_e('Select the provider for generating embeddings.', 'wpvdb'); ?></p>
                         
@@ -146,13 +157,54 @@ $exclude_custom_fields = get_option('wpvdb_exclude_custom_fields', []);
                     </th>
                     <td>
                         <select name="wpvdb_openai_model" id="wpvdb_openai_model">
-                            <option value="text-embedding-3-small" <?php selected($openai_model, 'text-embedding-3-small'); ?>>text-embedding-3-small (1536 dimensions)</option>
-                            <option value="text-embedding-3-large" <?php selected($openai_model, 'text-embedding-3-large'); ?>>text-embedding-3-large (3072 dimensions)</option>
-                            <option value="text-embedding-ada-002" <?php selected($openai_model, 'text-embedding-ada-002'); ?>>text-embedding-ada-002 (1536 dimensions, Legacy)</option>
+                            <?php if (isset($available_models['openai']) && is_array($available_models['openai'])): ?>
+                                <?php foreach ($available_models['openai'] as $model_id => $model_data): ?>
+                                <option value="<?php echo esc_attr($model_id); ?>" <?php selected($openai_model, $model_id); ?>>
+                                    <?php echo esc_html($model_data['label']); ?>
+                                </option>
+                                <?php endforeach; ?>
+                            <?php else: ?>
+                                <option value="text-embedding-3-small" <?php selected($openai_model, 'text-embedding-3-small'); ?>>text-embedding-3-small (1536 dimensions)</option>
+                                <option value="text-embedding-3-large" <?php selected($openai_model, 'text-embedding-3-large'); ?>>text-embedding-3-large (3072 dimensions)</option>
+                                <option value="text-embedding-ada-002" <?php selected($openai_model, 'text-embedding-ada-002'); ?>>text-embedding-ada-002 (1536 dimensions, Legacy)</option>
+                            <?php endif; ?>
                         </select>
                         <p class="description">
                             <?php esc_html_e('Select the OpenAI model to use for generating embeddings.', 'wpvdb'); ?>
                             <a href="https://platform.openai.com/docs/guides/embeddings" target="_blank"><?php esc_html_e('Learn more', 'wpvdb'); ?></a>
+                        </p>
+                    </td>
+                </tr>
+                
+                <tr class="provider-specific-field" data-provider="openai" <?php echo $provider !== 'openai' ? 'style="display: none;"' : ''; ?>>
+                    <th scope="row">
+                        <label for="wpvdb_openai_organization"><?php esc_html_e('OpenAI Organization ID', 'wpvdb'); ?></label>
+                    </th>
+                    <td>
+                        <input type="text" 
+                               name="wpvdb_openai_organization" 
+                               id="wpvdb_openai_organization" 
+                               value="<?php echo esc_attr(get_option('wpvdb_openai_organization', '')); ?>" 
+                               class="regular-text">
+                        <p class="description">
+                            <?php esc_html_e('Optional: Enter your OpenAI Organization ID if you belong to multiple organizations.', 'wpvdb'); ?>
+                        </p>
+                    </td>
+                </tr>
+                
+                <tr class="provider-specific-field" data-provider="openai" <?php echo $provider !== 'openai' ? 'style="display: none;"' : ''; ?>>
+                    <th scope="row">
+                        <label for="wpvdb_openai_api_version"><?php esc_html_e('OpenAI API Version', 'wpvdb'); ?></label>
+                    </th>
+                    <td>
+                        <input type="text" 
+                               name="wpvdb_openai_api_version" 
+                               id="wpvdb_openai_api_version" 
+                               value="<?php echo esc_attr(get_option('wpvdb_openai_api_version', '')); ?>" 
+                               placeholder="Leave blank for latest version"
+                               class="regular-text">
+                        <p class="description">
+                            <?php esc_html_e('Optional: Specify an API version if you need to use a specific version.', 'wpvdb'); ?>
                         </p>
                     </td>
                 </tr>
@@ -180,16 +232,92 @@ $exclude_custom_fields = get_option('wpvdb_exclude_custom_fields', []);
                     </th>
                     <td>
                         <select name="wpvdb_automattic_model" id="wpvdb_automattic_model">
-                            <option value="a8cai-embeddings-small-1" <?php selected($automattic_model, 'a8cai-embeddings-small-1'); ?>>a8cai-embeddings-small-1 (512 dimensions)</option>
-                            <option value="text-embedding-ada-002" <?php selected($automattic_model, 'text-embedding-ada-002'); ?>>text-embedding-ada-002 (1536 dimensions, Legacy)</option>
+                            <?php if (isset($available_models['automattic']) && is_array($available_models['automattic'])): ?>
+                                <?php foreach ($available_models['automattic'] as $model_id => $model_data): ?>
+                                <option value="<?php echo esc_attr($model_id); ?>" <?php selected($automattic_model, $model_id); ?>>
+                                    <?php echo esc_html($model_data['label']); ?>
+                                </option>
+                                <?php endforeach; ?>
+                            <?php else: ?>
+                                <option value="a8cai-embeddings-small-1" <?php selected($automattic_model, 'a8cai-embeddings-small-1'); ?>>a8cai-embeddings-small-1 (512 dimensions)</option>
+                                <option value="text-embedding-ada-002" <?php selected($automattic_model, 'text-embedding-ada-002'); ?>>text-embedding-ada-002 (1536 dimensions, Legacy)</option>
+                            <?php endif; ?>
                         </select>
                         <p class="description">
                             <?php esc_html_e('Select the Automattic AI model to use for generating embeddings.', 'wpvdb'); ?>
                         </p>
                     </td>
                 </tr>
+                
+                <tr class="provider-specific-field" data-provider="automattic" <?php echo $provider !== 'automattic' ? 'style="display: none;"' : ''; ?>>
+                    <th scope="row">
+                        <label for="wpvdb_automattic_endpoint"><?php esc_html_e('Automattic API Endpoint', 'wpvdb'); ?></label>
+                    </th>
+                    <td>
+                        <input type="text" 
+                               name="wpvdb_automattic_endpoint" 
+                               id="wpvdb_automattic_endpoint" 
+                               value="<?php echo esc_attr(get_option('wpvdb_automattic_endpoint', \WPVDB\Providers::get_api_base('automattic'))); ?>" 
+                               class="regular-text">
+                        <p class="description">
+                            <?php esc_html_e('API endpoint for Automattic embeddings. You probably don\'t need to change this.', 'wpvdb'); ?>
+                        </p>
+                    </td>
+                </tr>
+                
+                <tr class="provider-specific-field" data-provider="all">
+                    <th scope="row">
+                        <label for="wpvdb_embedding_batch_size"><?php esc_html_e('Embedding Batch Size', 'wpvdb'); ?></label>
+                    </th>
+                    <td>
+                        <input type="number" 
+                               name="wpvdb_embedding_batch_size" 
+                               id="wpvdb_embedding_batch_size" 
+                               value="<?php echo esc_attr(get_option('wpvdb_embedding_batch_size', '10')); ?>" 
+                               min="1" 
+                               max="100"
+                               class="small-text">
+                        <p class="description">
+                            <?php esc_html_e('Number of chunks to process in a single API request. Higher values may be more efficient but increase the risk of API timeouts.', 'wpvdb'); ?>
+                        </p>
+                    </td>
+                </tr>
             </table>
         </div>
+        
+        <!-- Add direct script for provider toggle -->
+        <script type="text/javascript">
+        jQuery(document).ready(function($) {
+            console.log('WPVDB Settings: Direct script loaded');
+            
+            // Function to toggle provider-specific fields
+            function wpvdbToggleProviderFields() {
+                var provider = $('#wpvdb_provider').val();
+                console.log('WPVDB Direct Toggle: Provider is', provider);
+                
+                // Hide all provider-specific fields
+                $('tr.api-key-field, tr.model-field, tr.provider-specific-field').hide();
+                
+                // Show selected provider fields
+                $('#' + provider + '_api_key_field').show();
+                $('#' + provider + '_model_field').show();
+                
+                // Show provider-specific fields with matching data attribute
+                $('tr.provider-specific-field[data-provider="' + provider + '"]').show();
+                
+                // Show fields for all providers
+                $('tr.provider-specific-field[data-provider="all"]').show();
+            }
+            
+            // Run on page load
+            wpvdbToggleProviderFields();
+            
+            // Run on provider change
+            $('#wpvdb_provider').on('change', function() {
+                wpvdbToggleProviderFields();
+            });
+        });
+        </script>
         
         <!-- Content Settings Section -->
         <div class="wpvdb-settings-section" <?php echo $current_section !== 'content' ? 'style="display: none;"' : ''; ?>>

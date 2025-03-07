@@ -223,6 +223,28 @@ class Admin {
         // Get the current settings
         $current_settings = get_option('wpvdb_settings', []);
         
+        // If we're receiving settings from the Automattic connect page
+        if (isset($input['automattic']['api_key']) && !empty($input['automattic']['api_key'])) {
+            error_log('WPVDB: Automattic API key received from connect page');
+            
+            // Make sure we update both the new settings structure and the old individual options
+            update_option('wpvdb_automattic_api_key', sanitize_text_field($input['automattic']['api_key']));
+            
+            // If this is a new connection, set Automattic as the active provider
+            if (empty($current_settings['automattic']['api_key'])) {
+                $input['active_provider'] = 'automattic';
+                $input['active_model'] = $input['automattic']['default_model'] ?? 'a8cai-embeddings-small-1';
+                $input['provider'] = 'automattic';
+                
+                // Also update individual options
+                update_option('wpvdb_provider', 'automattic');
+                update_option('wpvdb_automattic_model', $input['active_model']);
+            }
+            
+            // Set a transient to show a success message
+            set_transient('wpvdb_connection_success', true, 30);
+        }
+        
         // If we're receiving individual wpvdb_* fields, convert them to the expected structure
         if (isset($_POST['wpvdb_openai_api_key']) || isset($_POST['wpvdb_provider'])) {
             // This is the old format with individual fields, convert to new structure
@@ -255,6 +277,20 @@ class Admin {
             update_option('wpvdb_auto_embed_post_types', $input['post_types']);
             update_option('wpvdb_summarize_chunks', $input['enable_summarization']);
             update_option('wpvdb_require_auth', $input['require_auth']);
+            
+            // Update new provider-specific settings
+            if (isset($_POST['wpvdb_openai_organization'])) {
+                update_option('wpvdb_openai_organization', sanitize_text_field($_POST['wpvdb_openai_organization']));
+            }
+            if (isset($_POST['wpvdb_openai_api_version'])) {
+                update_option('wpvdb_openai_api_version', sanitize_text_field($_POST['wpvdb_openai_api_version']));
+            }
+            if (isset($_POST['wpvdb_automattic_endpoint'])) {
+                update_option('wpvdb_automattic_endpoint', sanitize_text_field($_POST['wpvdb_automattic_endpoint']));
+            }
+            if (isset($_POST['wpvdb_embedding_batch_size'])) {
+                update_option('wpvdb_embedding_batch_size', intval($_POST['wpvdb_embedding_batch_size']));
+            }
             
             error_log('WPVDB Converted Settings: ' . print_r($input, true));
         }
@@ -694,7 +730,8 @@ class Admin {
             wp_send_json_error(['message' => __('Permission denied', 'wpvdb')]);
         }
         
-        $cancel = isset($_POST['cancel']) && $_POST['cancel'] === 'true';
+        // Check for both string 'true' and boolean true values
+        $cancel = isset($_POST['cancel']) && ($_POST['cancel'] === 'true' || $_POST['cancel'] === true);
         $settings = get_option('wpvdb_settings', []);
         
         // Ensure settings is an array
@@ -955,10 +992,20 @@ class Admin {
     }
     
     /**
-     * Show connection success notice
+     * Display success notice after connecting to Automattic AI
      */
     public static function connection_success_notice() {
-        if (isset($_GET['page']) && $_GET['page'] === 'wpvdb-settings' && isset($_GET['automattic_connected'])) {
+        // Check for the transient we set in validate_settings
+        if (get_transient('wpvdb_connection_success')) {
+            delete_transient('wpvdb_connection_success');
+            ?>
+            <div class="notice notice-success is-dismissible">
+                <p><strong><?php esc_html_e('Success!', 'wpvdb'); ?></strong> <?php esc_html_e('Your Automattic AI account has been connected successfully.', 'wpvdb'); ?></p>
+            </div>
+            <?php
+        }
+        // Also keep the original check for backward compatibility
+        else if (isset($_GET['page']) && $_GET['page'] === 'wpvdb-settings' && isset($_GET['automattic_connected'])) {
             ?>
             <div class="notice notice-success is-dismissible">
                 <p><strong><?php esc_html_e('Success!', 'wpvdb'); ?></strong> <?php esc_html_e('Your Automattic AI account has been connected successfully.', 'wpvdb'); ?></p>
@@ -1320,45 +1367,37 @@ class Admin {
             wp_send_json_error(['message' => __('Text is required for generating embeddings.', 'wpvdb')]);
         }
         
-        if (!in_array($provider, ['openai', 'automattic'])) {
+        // Validate provider exists in our registry
+        $provider_info = Providers::get_provider($provider);
+        if (!$provider_info) {
             wp_send_json_error(['message' => __('Invalid provider.', 'wpvdb')]);
         }
         
-        // Get the appropriate API key and base URL
-        $settings = get_option('wpvdb_settings', []);
-        $api_key = '';
-        $api_base = '';
-        
-        if ($provider === 'openai') {
-            $api_key = $settings['openai']['api_key'] ?? '';
-            $api_base = 'https://api.openai.com/v1/';
-            
-            // Validate model
-            if (!in_array($model, ['text-embedding-3-small', 'text-embedding-3-large', 'text-embedding-ada-002'])) {
-                wp_send_json_error(['message' => __('Invalid OpenAI model.', 'wpvdb')]);
-            }
-        } else if ($provider === 'automattic') {
-            $api_key = $settings['automattic']['api_key'] ?? '';
-            $api_base = 'https://api.automattic.com/v1/embedding';
-            
-            // Validate model
-            if (!in_array($model, ['automattic-embeddings-001'])) {
-                wp_send_json_error(['message' => __('Invalid Automattic model.', 'wpvdb')]);
-            }
+        // Validate model exists for this provider
+        $model_info = Models::get_model($provider, $model);
+        if (!$model_info) {
+            wp_send_json_error(['message' => sprintf(
+                __('Invalid model "%s" for provider "%s".', 'wpvdb'),
+                $model,
+                $provider_info['label']
+            )]);
         }
+        
+        // Get API key
+        $api_key = Settings::get_provider_api_key($provider);
         
         if (empty($api_key)) {
             wp_send_json_error(['message' => sprintf(
                 __('API key for %s is not configured. Please configure it in the settings.', 'wpvdb'),
-                $provider === 'openai' ? 'OpenAI' : 'Automattic AI'
+                $provider_info['label']
             )]);
         }
         
         // Time the embedding generation
         $start_time = microtime(true);
         
-        // Generate embedding
-        $embedding = Core::get_embedding($text, $model, $api_base, $api_key);
+        // Generate embedding using the new unified method
+        $embedding = Core::get_embedding_for_model($text, $model, $provider);
         
         $end_time = microtime(true);
         $time_taken = round($end_time - $start_time, 2);
@@ -1372,7 +1411,7 @@ class Admin {
         $sample_json = json_encode($sample, JSON_PRETTY_PRINT);
         
         wp_send_json_success([
-            'provider' => $provider === 'openai' ? 'OpenAI' : 'Automattic AI',
+            'provider' => $provider_info['label'],
             'model' => $model,
             'dimensions' => count($embedding),
             'sample' => $sample_json,
