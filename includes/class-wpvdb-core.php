@@ -8,21 +8,21 @@ class Core {
     /**
      * Initialize core hooks or filters.
      */
-    public static function init() {
+    public function init() {
         // Show an admin notice if DB vector support is missing.
-        add_action('admin_notices', [__CLASS__, 'maybe_show_db_warning_notice']);
+        add_action('admin_notices', [$this, 'maybe_show_db_warning_notice']);
 
         // (Optional) Provide a filter for chunking text.
-        add_filter('wpvdb_chunk_text', [__CLASS__, 'default_chunking'], 10, 2);
+        add_filter('wpvdb_chunk_text', [$this, 'default_chunking'], 10, 2);
 
         // Provide a filter to process or summarize chunks.
-        add_filter('wpvdb_ai_summarize_chunk', [__CLASS__, 'default_summary'], 10, 2);
+        add_filter('wpvdb_ai_summarize_chunk', [$this, 'default_summary'], 10, 2);
     }
 
     /**
      * If the DB doesn't support native vectors, show a warning (if user is admin).
      */
-    public static function maybe_show_db_warning_notice() {
+    public function maybe_show_db_warning_notice() {
         if (!current_user_can('manage_options')) {
             return;
         }
@@ -42,7 +42,7 @@ class Core {
      * @param string $text   the text to chunk.
      * @return array of chunk strings
      */
-    public static function default_chunking($chunks, $text) {
+    public function default_chunking($chunks, $text) {
         if (!empty($chunks)) {
             // If some other filter added chunks, just return them.
             return $chunks;
@@ -89,7 +89,7 @@ class Core {
      * @param string $text    chunk text
      * @return string summarization
      */
-    public static function default_summary($summary, $text) {
+    public function default_summary($summary, $text) {
         if (!empty($summary)) {
             return $summary;
         }
@@ -198,7 +198,7 @@ class Core {
         }
         
         // Get API key
-        $api_key = Settings::get_provider_api_key($provider_name);
+        $api_key = Settings::get_api_key_for_provider($provider_name);
         
         // Get the API base URL
         $api_base = Providers::get_api_base($provider_name);

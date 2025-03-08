@@ -17,6 +17,7 @@
     padding: 20px;
     min-width: 200px;
     flex: 1;
+    margin-bottom: 20px;
 }
 
 .wpvdb-card h2 {
@@ -25,10 +26,103 @@
     color: #23282d;
 }
 
+.wpvdb-card h3 {
+    margin-top: 0;
+    font-size: 14px;
+    color: #23282d;
+    border-bottom: 1px solid #eee;
+    padding-bottom: 10px;
+    margin-bottom: 15px;
+}
+
 .wpvdb-stat {
     font-size: 32px;
     font-weight: bold;
     color: #2271b1;
+}
+
+/* Status page specific styles */
+.wpvdb-status-wrapper {
+    margin: 20px 0;
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 20px;
+}
+
+.wpvdb-status-section {
+    margin-bottom: 30px;
+}
+
+.wpvdb-status-section h2 {
+    font-size: 1.3em;
+    margin: 1em 0;
+}
+
+.wpvdb-status-section table.widefat {
+    margin-bottom: 20px;
+}
+
+.wpvdb-status-section table.widefat th {
+    width: 30%;
+}
+
+.wpvdb-diagnostics-results {
+    background: #f8f8f8;
+    padding: 15px;
+    margin-top: 20px;
+    border-left: 4px solid #46b450;
+}
+
+.wpvdb-diagnostics-results.has-error {
+    border-left-color: #dc3232;
+}
+
+.wpvdb-diagnostics-results ul {
+    margin: 0;
+    padding: 0;
+}
+
+.wpvdb-diagnostics-results li {
+    margin-bottom: 8px;
+    list-style: none;
+}
+
+.wpvdb-diagnostics-results li:last-child {
+    margin-bottom: 0;
+}
+
+/* Provider change styles */
+.wpvdb-pending-change-card {
+    border-left: 4px solid #ffba00;
+    background-color: #fff8e5;
+}
+
+.wpvdb-pending-change-row {
+    background-color: #fff8e5;
+}
+
+.wpvdb-provider-change-info {
+    background: rgba(255, 255, 255, 0.5);
+    padding: 10px 15px;
+    margin-bottom: 15px;
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    border-radius: 3px;
+}
+
+.wpvdb-provider-change-info p {
+    margin: 5px 0;
+}
+
+/* Debug information styles */
+.wpvdb-debug-output {
+    background: #f0f0f1;
+    padding: 10px;
+    max-height: 200px;
+    overflow: auto;
+    font-size: 12px;
+    margin: 10px 0;
+    border: 1px solid #ddd;
+    white-space: pre-wrap;
 }
 
 .wpvdb-actions {
@@ -176,6 +270,13 @@
     }
     .wpvdb-status-count {
         display: inline-block;
+    }
+}
+
+/* Mobile responsive styles */
+@media screen and (max-width: 782px) {
+    .wpvdb-status-wrapper {
+        grid-template-columns: 1fr;
     }
 }
 

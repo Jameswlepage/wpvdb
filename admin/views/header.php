@@ -3,11 +3,18 @@
  * Admin header template
  *
  * @package WPVDB
+ * @var string $tab The current tab
+ * @var array $tabs Array of available tabs
+ * @var Admin $admin Admin instance
  */
 
 defined('ABSPATH') || exit;
 
-global $wpdb;
+// Get the plugin instance
+global $wpvdb_plugin, $wpdb;
+
+// Get the database instance
+$database = $wpvdb_plugin->get_database();
 
 // Get required variables and settings
 $settings = get_option('wpvdb_settings', []);
@@ -155,11 +162,11 @@ switch ($tab) {
             'post_max_size' => ini_get('post_max_size'),
             'max_input_vars' => ini_get('max_input_vars'),
             'mysql_version' => $wpdb->db_version(),
-            'db_type' => \WPVDB\Database::get_db_type(),
+            'db_type' => $database->get_db_type(),
             'curl_version' => function_exists('curl_version') ? curl_version()['version'] : __('Not available', 'wpvdb'),
             'openai_api_key_set' => !empty(isset($settings['openai']['api_key']) ? $settings['openai']['api_key'] : ''),
             'automattic_api_key_set' => !empty(isset($settings['automattic']['api_key']) ? $settings['automattic']['api_key'] : ''),
-            'vector_db_support' => \WPVDB\Database::has_native_vector_support(),
+            'vector_db_support' => $database->has_native_vector_support(),
         ];
         break;
 }
@@ -168,7 +175,7 @@ switch ($tab) {
 <div class="wrap wpvdb-admin">
     <h1><?php echo esc_html__('Vector Database', 'wpvdb'); ?></h1>
     
-    <?php if (\WPVDB\Admin::is_database_compatible() || \WPVDB\Admin::are_fallbacks_enabled()): ?>
+    <?php if ($admin->is_database_compatible() || $admin->are_fallbacks_enabled()): ?>
         <nav class="nav-tab-wrapper woo-nav-tab-wrapper">
             <?php foreach ($tabs as $tab_id => $tab_label): ?>
                 <?php 

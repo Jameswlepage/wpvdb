@@ -54,20 +54,29 @@ class Settings {
     
     /**
      * Get API key for a specific provider
+     *
+     * @param string $provider Provider name (openai, automattic, etc.)
+     * @return string API key or empty string if not found
      */
-    public static function get_provider_api_key($provider) {
-        // Check for constants defined in wp-config.php first
-        if ($provider === 'openai' && defined('WPVDB_OPENAI_API_KEY')) {
-            return \constant('WPVDB_OPENAI_API_KEY');
-        }
-        
-        if ($provider === 'automattic' && defined('WPVDB_AUTOMATTIC_API_KEY')) {
-            return \constant('WPVDB_AUTOMATTIC_API_KEY');
-        }
-        
-        // Fall back to database settings
+    public static function get_api_key_for_provider($provider) {
         $settings = get_option('wpvdb_settings', []);
-        return isset($settings[$provider]['api_key']) ? $settings[$provider]['api_key'] : '';
+        
+        if (!is_array($settings)) {
+            return '';
+        }
+        
+        // Check in the provider-specific settings
+        if (isset($settings[$provider]['api_key']) && !empty($settings[$provider]['api_key'])) {
+            return $settings[$provider]['api_key'];
+        }
+        
+        // Check in the active provider setting
+        if (isset($settings['active_provider']) && $settings['active_provider'] === $provider) {
+            return isset($settings['api_key']) ? $settings['api_key'] : '';
+        }
+        
+        // Default to empty
+        return '';
     }
     
     /**
@@ -92,6 +101,35 @@ class Settings {
         }
         
         return $api_base;
+    }
+    
+    /**
+     * Get API base URL for a specific provider
+     *
+     * @param string $provider Provider name (openai, automattic, etc.)
+     * @return string API base URL or empty string if not found
+     */
+    public static function get_api_base_for_provider($provider) {
+        $settings = get_option('wpvdb_settings', []);
+        
+        if (!is_array($settings)) {
+            return '';
+        }
+        
+        // Check in the provider-specific settings
+        if (isset($settings[$provider]['api_base']) && !empty($settings[$provider]['api_base'])) {
+            return $settings[$provider]['api_base'];
+        }
+        
+        // Check if we have default API bases
+        switch ($provider) {
+            case 'openai':
+                return 'https://api.openai.com/v1/';
+            case 'automattic':
+                return 'https://api.automattic.com/ai/v1/';
+            default:
+                return '';
+        }
     }
     
     /**

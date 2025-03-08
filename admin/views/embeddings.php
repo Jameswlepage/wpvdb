@@ -11,12 +11,19 @@
     
     if ($show_debug) {
         // Get and display settings information
+        global $wpdb;
+        
+        $table_name = $wpdb->prefix . 'wpvdb_embeddings';
+        
+        // Create a database instance instead of using static methods
+        $database = new \WPVDB\Database();
+        
+        // Get plugin settings
         $api_key = \WPVDB\Settings::get_api_key();
-        $active_provider = get_option('wpvdb_settings', [])['active_provider'] ?? 'openai';
         $model = \WPVDB\Settings::get_default_model();
         $api_base = \WPVDB\Settings::get_api_base();
-        $db_type = \WPVDB\Database::get_db_type();
-        $has_vector_support = \WPVDB\Database::has_native_vector_support() ? 'Yes' : 'No';
+        $db_type = $database->get_db_type();
+        $has_vector_support = $database->has_native_vector_support() ? 'Yes' : 'No';
         
         echo '<div class="notice notice-info is-dismissible">';
         echo '<h3>' . esc_html__('Debug Information', 'wpvdb') . '</h3>';
@@ -70,10 +77,15 @@
         $search_time_result = 0;
         $total_vectors_searched = 0;
         
-        // Get the embedding for the search query
+        // Create a database instance instead of using static methods
+        $database = new \WPVDB\Database();
+        
+        // Get plugin settings
         $api_key = \WPVDB\Settings::get_api_key();
         $model = \WPVDB\Settings::get_default_model();
         $api_base = \WPVDB\Settings::get_api_base();
+        $db_type = $database->get_db_type();
+        $has_vector_support = $database->has_native_vector_support() ? 'Yes' : 'No';
         
         error_log('[WPVDB DEBUG] Performing semantic search for query: ' . $search_query);
         error_log('[WPVDB DEBUG] API Key exists: ' . (!empty($api_key) ? 'Yes' : 'No'));
@@ -90,7 +102,7 @@
                     error_log('[WPVDB DEBUG] Successfully generated embedding with dimensions: ' . count($embedding_result));
                     
                     $embedding = $embedding_result;
-                    $has_vector = \WPVDB\Database::has_native_vector_support();
+                    $has_vector = $database->has_native_vector_support();
                     error_log('[WPVDB DEBUG] Database has native vector support: ' . ($has_vector ? 'Yes' : 'No'));
                     
                     if ($has_vector) {
@@ -98,7 +110,7 @@
                         $embedding_json = json_encode($embedding);
                         
                         // Use Database class to get the appropriate vector function
-                        $vector_function = \WPVDB\Database::get_vector_from_string_function($embedding_json);
+                        $vector_function = $database->get_vector_from_string_function($embedding_json);
                         error_log('[WPVDB DEBUG] Using vector function: ' . $vector_function);
                         
                         // Get total count of vectors
@@ -106,7 +118,7 @@
                         error_log('[WPVDB DEBUG] Total vectors searched: ' . $total_vectors_searched);
                         
                         // Use Database class to get the appropriate distance function with both vectors
-                        $db_type = \WPVDB\Database::get_db_type();
+                        $db_type = $database->get_db_type();
                         if ($db_type === 'mariadb') {
                             $distance_function = "VEC_DISTANCE_COSINE(e.embedding, $vector_function)";
                         } else {
@@ -266,6 +278,21 @@
             }
         ?></p>
     <?php endif; ?>
+    
+    <?php 
+    // If no embeddings are loaded yet (not searching), load the first 20 embeddings
+    if (empty($embeddings) && empty($search_query)) {
+        // Load the latest embeddings (up to 20)
+        $count_query = "SELECT COUNT(*) FROM $table_name";
+        $total_embeddings = $wpdb->get_var($count_query);
+        
+        if ($total_embeddings > 0) {
+            $embeddings_query = "SELECT * FROM $table_name ORDER BY id DESC LIMIT 20";
+            $embeddings = $wpdb->get_results($embeddings_query);
+            error_log('[WPVDB DEBUG] Loaded ' . count($embeddings) . ' embeddings for display');
+        }
+    }
+    ?>
     
     <?php if (empty($embeddings)) : ?>
         <div class="wpvdb-no-data">

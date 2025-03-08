@@ -7,8 +7,11 @@
 
 defined('ABSPATH') || exit;
 
+// Get the database instance
+$database = $plugin->get_database();
+
 // Get the detected database info
-$db_type = \WPVDB\Database::get_db_type();
+$db_type = $database->get_db_type();
 $version = '';
 global $wpdb;
 $version_string = $wpdb->get_var('SELECT VERSION()');
@@ -67,10 +70,10 @@ add_filter(\'wpvdb_enable_fallbacks\', \'__return_true\');</code></pre>',
         <p>
             <?php printf(
                 __('You are using %1$s version %2$s. Vector Database features require %3$s version %4$s or newer.', 'wpvdb'),
-                ucfirst($db_type),
+                esc_html(ucfirst($db_type)),
                 esc_html($version),
-                $db_type === 'mysql' ? 'MySQL' : 'MariaDB',
-                $db_type === 'mysql' ? $min_mysql_version : $min_mariadb_version
+                esc_html($db_type === 'mysql' ? 'MySQL' : 'MariaDB'),
+                esc_html($db_type === 'mysql' ? $min_mysql_version : $min_mariadb_version)
             ); ?>
         </p>
     </div>

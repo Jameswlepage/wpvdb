@@ -4,6 +4,21 @@ namespace WPVDB;
 defined('ABSPATH') || exit;
 
 class Query {
+    /**
+     * Database handler
+     *
+     * @var Database
+     */
+    private static $database;
+
+    /**
+     * Initialize the database instance
+     */
+    private static function init_database() {
+        if (null === self::$database) {
+            self::$database = new Database();
+        }
+    }
 
     /**
      * Hook into 'pre_get_posts' or a similar filter to do custom vector searching if requested.
@@ -22,6 +37,9 @@ class Query {
      * We'll find the top matching doc_ids from pivot table, then limit WP_Query to those posts.
      */
     public static function maybe_vector_search($query) {
+        // Initialize database
+        self::init_database();
+
         // Only run in front-end or REST contexts, and only if vdb_vector_query is set.
         if (is_admin() && !wp_doing_ajax()) {
             return;
@@ -72,7 +90,7 @@ class Query {
             error_log('[WPVDB DEBUG] Embedding generated successfully, dimensions: ' . count($embedding_result));
             
             $embedding = $embedding_result;
-            $has_vector = Database::has_native_vector_support();
+            $has_vector = self::$database->has_native_vector_support();
             error_log('[WPVDB DEBUG] Vector support detected: ' . ($has_vector ? 'Yes' : 'No'));
 
             $limit = $query->get('posts_per_page') ?: 10;
@@ -86,11 +104,11 @@ class Query {
                     $embedding_json = json_encode($embedding);
                     
                     // Use Database class to get the appropriate vector function
-                    $vector_function = Database::get_vector_from_string_function($embedding_json);
+                    $vector_function = self::$database->get_vector_from_string_function($embedding_json);
                     error_log('[WPVDB DEBUG] Using vector function: ' . $vector_function);
                     
                     // Use Database class to get the appropriate distance function
-                    $distance_function = Database::get_vector_distance_function('embedding', $vector_function, 'cosine');
+                    $distance_function = self::$database->get_vector_distance_function('embedding', $vector_function, 'cosine');
                     error_log('[WPVDB DEBUG] Using distance function: ' . $distance_function);
                     
                     // Optimized query that will use the vector index
@@ -158,5 +176,41 @@ class Query {
         } catch (\Exception $e) {
             error_log('[WPVDB ERROR] Unhandled exception in maybe_vector_search: ' . $e->getMessage());
         }
+    }
+
+    /**
+     * Modify SQL query to include vector search
+     * 
+     * @param string   $sql  SQL query string
+     * @param WP_Query $query Query instance
+     * @return string Modified SQL query
+     */
+    public function posts_request($sql, $query) {
+        if (empty($query->query_vars['wpvdb_vector_query'])) {
+            return $sql;
+        }
+        
+        global $wpdb;
+        
+        // Get vector query from query vars
+        $vector_query = $query->query_vars['wpvdb_vector_query'];
+        
+        // Get database handler
+        $database = new Database();
+        
+        // Check if we have vector support
+        $has_vector = $database->has_native_vector_support();
+        
+        // Get embedding table
+        $embedding_table = $wpdb->prefix . 'wpvdb_embeddings';
+        
+        // Check if embedding table exists
+        $table_exists = $wpdb->get_var("SHOW TABLES LIKE '$embedding_table'") === $embedding_table;
+        
+        if (!$table_exists) {
+            return $sql;
+        }
+        
+        return $sql;
     }
 }

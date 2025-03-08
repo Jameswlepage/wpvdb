@@ -6,6 +6,21 @@ use wpdb;
 defined('ABSPATH') || exit;
 
 class Activation {
+    /**
+     * Database handler
+     *
+     * @var Database
+     */
+    private static $database;
+
+    /**
+     * Initialize the database instance
+     */
+    private static function init_database() {
+        if (null === self::$database) {
+            self::$database = new Database();
+        }
+    }
 
     /**
      * Plugin activation routine.
@@ -14,6 +29,9 @@ class Activation {
      */
     public static function activate() {
         global $wpdb;
+
+        // Initialize database
+        self::init_database();
 
         // Silence errors during activation to prevent "headers already sent"
         $wpdb->hide_errors();
@@ -26,8 +44,8 @@ class Activation {
         
         // Check if database is compatible - if not and fallbacks aren't enabled, set a transient
         // to display a notice about compatibility and possible auto-deactivation
-        $is_compatible = Database::has_native_vector_support();
-        $fallbacks_enabled = Database::are_fallbacks_enabled();
+        $is_compatible = self::$database->has_native_vector_support();
+        $fallbacks_enabled = self::$database->are_fallbacks_enabled();
         
         if (!$is_compatible && !$fallbacks_enabled) {
             // Set transient for admin notice
@@ -48,63 +66,22 @@ class Activation {
             delete_option('wpvdb_incompatible_db');
             delete_transient('wpvdb_incompatible_db_notice');
         }
-
-        // Prepare table schema.
-        $table_name = $wpdb->prefix . 'wpvdb_embeddings';
-        $charset_collate = $wpdb->get_charset_collate();
-
-        // Determine if we have native vector support.
-        if (Database::has_native_vector_support() && !Database::are_fallbacks_enabled()) {
-            // Use VECTOR(...) column if MariaDB ≥ 11.7 or MySQL ≥ 9.0 supports it.
-            $dimensions = WPVDB_DEFAULT_EMBED_DIM; // Example dimension.
-            
-            try {
-                // Get the appropriate column type from Database class
-                $vector_column_type = Database::get_embedding_column_type($dimensions);
-                
-                // Create table with VECTOR type and VECTOR INDEX for MariaDB
-                if (Database::get_db_type() === 'mariadb') {
-                    $sql = "CREATE TABLE IF NOT EXISTS {$table_name} (
-                        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-                        doc_id BIGINT UNSIGNED NOT NULL,
-                        chunk_id VARCHAR(100) NOT NULL,
-                        chunk_content LONGTEXT NOT NULL,
-                        embedding $vector_column_type NOT NULL,
-                        summary LONGTEXT NULL,
-                        PRIMARY KEY (id),
-                        INDEX (doc_id),
-                        VECTOR INDEX (embedding) M=16 DISTANCE=cosine
-                    ) $charset_collate;";
-                } else {
-                    // MySQL doesn't support VECTOR INDEX in CREATE TABLE
-                    $sql = "CREATE TABLE IF NOT EXISTS {$table_name} (
-                        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-                        doc_id BIGINT UNSIGNED NOT NULL,
-                        chunk_id VARCHAR(100) NOT NULL,
-                        chunk_content LONGTEXT NOT NULL,
-                        embedding $vector_column_type NOT NULL,
-                        summary LONGTEXT NULL,
-                        PRIMARY KEY (id),
-                        INDEX (doc_id)
-                    ) $charset_collate;";
-                }
-                
-                require_once ABSPATH . 'wp-admin/includes/upgrade.php';
-                dbDelta($sql);
-                
-                // Check if table was created successfully
-                if ($wpdb->get_var("SHOW TABLES LIKE '$table_name'") != $table_name) {
-                    // If failed with VECTOR syntax, fall back to non-vector version
-                    self::create_fallback_table($table_name, $charset_collate);
-                }
-            } catch (\Exception $e) {
-                // If any error occurs, fall back to non-vector version
-                self::create_fallback_table($table_name, $charset_collate);
-            }
-        } else {
-            // Fallback: store embedding as LONGTEXT
-            self::create_fallback_table($table_name, $charset_collate);
-        }
+        
+        // Get the SQL for creating tables
+        $sql = self::get_schema_sql();
+        
+        // Apply schema changes (create/update tables)
+        require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
+        dbDelta($sql);
+        
+        // Create index on name column (improves lookup performance)
+        self::add_vector_index_to_existing_table();
+        
+        // Create Meta tables
+        self::create_meta_tables();
+        
+        // Store the current DB version
+        update_option('wpvdb_db_version', WPVDB_VERSION);
         
         // Restore error reporting
         error_reporting($old_error_reporting);
@@ -112,156 +89,131 @@ class Activation {
     }
     
     /**
-     * Create a fallback non-vector table for compatibility
-     * 
-     * @param string $table_name Table name
-     * @param string $charset_collate Charset and collation
-     */
-    private static function create_fallback_table($table_name, $charset_collate) {
-        global $wpdb;
-        
-        $sql = "CREATE TABLE IF NOT EXISTS {$table_name} (
-            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-            doc_id BIGINT UNSIGNED NOT NULL,
-            chunk_id VARCHAR(100) NOT NULL,
-            chunk_content LONGTEXT NOT NULL,
-            embedding LONGTEXT NOT NULL,
-            summary LONGTEXT NULL,
-            PRIMARY KEY (id)
-        ) $charset_collate;";
-        
-        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
-        dbDelta($sql);
-        
-        // Set flag that we're using fallback storage
-        update_option('wpvdb_using_fallback_storage', 1, true);
-    }
-
-    /**
-     * If the DB does not have vector support, show an admin_notice warning that performance
-     * will degrade or some features won't be available.
-     * (We can't actually do that in activation hook alone, we can store an option.)
+     * Check database version and set a warning flag if necessary
      */
     public static function check_db_version_or_warn() {
-        if (!Database::has_native_vector_support()) {
-            // Record an admin notice to be displayed or log something.
-            update_option('wpvdb_db_vector_support_warning', 1, true);
+        self::init_database();
+        
+        $has_vector = self::$database->has_native_vector_support();
+        
+        if ($has_vector || self::$database->are_fallbacks_enabled()) {
+            // Compatible database or fallbacks enabled, no warning needed
+            update_option('wpvdb_db_vector_support_warning', 0);
         } else {
-            delete_option('wpvdb_db_vector_support_warning');
+            // Incompatible database, set warning flag
+            update_option('wpvdb_db_vector_support_warning', 1);
         }
     }
-
+    
     /**
-     * Create tables directly using DROP/CREATE approach 
-     * This is more aggressive than the normal activation but can help when tables fail to create
+     * Generate the SQL for creating the embedding table
      */
-    public static function recreate_tables_force() {
+    private static function get_schema_sql() {
         global $wpdb;
+        self::init_database();
         
-        // Silence errors during activation to prevent "headers already sent"
-        $wpdb->hide_errors();
-        $show_errors = $wpdb->show_errors;
-        $wpdb->show_errors = false;
-        $old_error_reporting = error_reporting(0);
-        $old_display_errors = ini_get('display_errors');
-        ini_set('display_errors', 0);
-        
-        // Check database version
-        self::check_db_version_or_warn();
-        
-        // Table name
+        $collate = $wpdb->get_charset_collate();
         $table_name = $wpdb->prefix . 'wpvdb_embeddings';
-        $charset_collate = $wpdb->get_charset_collate();
         
-        // First drop the table to ensure clean creation
-        $wpdb->query("DROP TABLE IF EXISTS {$table_name}");
+        // Determine the embedding column type (vector or longtext fallback)
+        $has_vector = self::$database->has_native_vector_support();
+        $embed_dim = defined('WPVDB_DEFAULT_EMBED_DIM') ? WPVDB_DEFAULT_EMBED_DIM : 1536;
+        $embedding_type = self::$database->get_embedding_column_type($embed_dim);
         
-        // Check if we have vector support
-        $has_vector = Database::has_native_vector_support();
-        $vector_table_created = false;
+        $has_meta_column = false;
+        $check_meta_column = $wpdb->get_var("SHOW COLUMNS FROM $table_name LIKE 'meta'");
+        if ($check_meta_column) {
+            $has_meta_column = true;
+        }
         
-        if ($has_vector) {
-            $dimensions = WPVDB_DEFAULT_EMBED_DIM;
-            
+        // Build the SQL for creating the table
+        $sql = "CREATE TABLE {$table_name} (
+            id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+            doc_id bigint(20) unsigned NOT NULL,
+            doc_type varchar(20) NOT NULL DEFAULT 'post',
+            model varchar(64) NOT NULL,
+            chunk_index int(11) NOT NULL DEFAULT 0,
+            chunk_text longtext NOT NULL,
+            embedding {$embedding_type} NOT NULL,
+            embedding_date datetime DEFAULT NULL,
+            meta longtext DEFAULT NULL,
+            PRIMARY KEY  (id),
+            KEY doc_id (doc_id),
+            KEY model (model),
+            KEY doc_type (doc_type)
+        ) $collate;\n";
+
+        if (!$has_meta_column) {
+            // Add meta column if it doesn't exist (for upgrade from older versions)
+            $sql .= "ALTER TABLE {$table_name} ADD COLUMN meta longtext DEFAULT NULL;\n";
+        }
+        
+        return $sql;
+    }
+    
+    /**
+     * Add a vector index to the embeddings table if using MariaDB
+     */
+    public static function add_vector_index_to_existing_table() {
+        global $wpdb;
+        self::init_database();
+        
+        $table_name = $wpdb->prefix . 'wpvdb_embeddings';
+        $table_exists = $wpdb->get_var("SHOW TABLES LIKE '$table_name'") === $table_name;
+        
+        if ($table_exists && self::$database->get_db_type() === 'mariadb') {
             try {
-                // Get the appropriate column type from Database class
-                $vector_column_type = Database::get_embedding_column_type($dimensions);
-                
-                // Create table with VECTOR type and VECTOR INDEX for MariaDB
-                if (Database::get_db_type() === 'mariadb') {
-                    $sql = "CREATE TABLE {$table_name} (
-                        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-                        doc_id BIGINT UNSIGNED NOT NULL,
-                        chunk_id VARCHAR(100) NOT NULL,
-                        chunk_content LONGTEXT NOT NULL,
-                        embedding {$vector_column_type} NOT NULL,
-                        summary LONGTEXT NULL,
-                        PRIMARY KEY (id),
-                        INDEX (doc_id),
-                        VECTOR INDEX (embedding) M=16 DISTANCE=cosine
-                    ) {$charset_collate};";
-                } else {
-                    // MySQL doesn't support VECTOR INDEX in CREATE TABLE
-                    $sql = "CREATE TABLE {$table_name} (
-                        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-                        doc_id BIGINT UNSIGNED NOT NULL,
-                        chunk_id VARCHAR(100) NOT NULL,
-                        chunk_content LONGTEXT NOT NULL,
-                        embedding {$vector_column_type} NOT NULL,
-                        summary LONGTEXT NULL,
-                        PRIMARY KEY (id),
-                        INDEX (doc_id)
-                    ) {$charset_collate};";
-                }
-                
-                $result = $wpdb->query($sql);
-                
-                // Check if the table was created
-                if ($wpdb->get_var("SHOW TABLES LIKE '{$table_name}'") === $table_name) {
-                    $vector_table_created = true;
-                    delete_option('wpvdb_using_fallback_storage');
+                if (self::$database->has_native_vector_support()) {
+                    $wpdb->query("
+                        ALTER TABLE $table_name 
+                        ADD VECTOR INDEX embedding_idx(embedding) M=16 DISTANCE=cosine
+                    ");
+                    error_log('[WPVDB] Added vector index to embeddings table');
                 }
             } catch (\Exception $e) {
-                // If error, we'll fall back to non-vector version below
-                $vector_table_created = false;
+                // Ignore errors, the index might already exist or the database might not support it
+                error_log('[WPVDB] Error adding vector index: ' . $e->getMessage());
+            }
+        }
+    }
+    
+    /**
+     * Recreate the tables with up-to-date schema and vector support if available
+     */
+    public static function recreate_tables() {
+        global $wpdb;
+        self::init_database();
+        
+        $table_name = $wpdb->prefix . 'wpvdb_embeddings';
+        
+        // Drop the existing table
+        $wpdb->query("DROP TABLE IF EXISTS $table_name");
+        
+        // Create the table with the current schema
+        self::activate();
+        
+        // Add index 
+        if (self::$database->get_db_type() === 'mariadb') {
+            try {
+                if (self::$database->has_native_vector_support()) {
+                    $wpdb->query("
+                        ALTER TABLE $table_name 
+                        ADD VECTOR INDEX embedding_idx(embedding) M=16 DISTANCE=cosine
+                    ");
+                }
+            } catch (\Exception $e) {
+                // Ignore errors
+                error_log('[WPVDB] Error adding vector index during recreation: ' . $e->getMessage());
             }
         }
         
-        // If vector table creation failed or is not supported, create fallback
-        if (!$vector_table_created) {
-            // Create the fallback table directly (not using dbDelta)
-            $sql = "CREATE TABLE {$table_name} (
-                id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-                doc_id BIGINT UNSIGNED NOT NULL,
-                chunk_id VARCHAR(100) NOT NULL,
-                chunk_content LONGTEXT NOT NULL,
-                embedding LONGTEXT NOT NULL,
-                summary LONGTEXT NULL,
-                PRIMARY KEY (id)
-            ) {$charset_collate};";
-            
-            $wpdb->query($sql);
-            
-            // Set flag that we're using fallback storage
-            update_option('wpvdb_using_fallback_storage', 1, true);
-        }
-        
-        // Restore error reporting
-        error_reporting($old_error_reporting);
-        $wpdb->show_errors = $show_errors;
-        ini_set('display_errors', $old_display_errors);
-        
-        return ($wpdb->get_var("SHOW TABLES LIKE '{$table_name}'") === $table_name);
+        return true;
     }
-
+    
     /**
-     * Add vector index to existing table if it doesn't have one
-     * This is called during plugin updates to optimize performance
-     * 
-     * @return bool True if index was added or already exists, false on failure
+     * Create meta tables for storing embedding-related metadata
      */
-    public static function add_vector_index_to_existing_table() {
-        // Use the Database class method to add the vector index
-        return Database::add_vector_index(16, 'cosine');
+    private static function create_meta_tables() {
+        // Reserved for future use if needed
     }
 }

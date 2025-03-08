@@ -4,115 +4,132 @@ namespace WPVDB;
 defined('ABSPATH') || exit;
 
 class Admin {
+    /**
+     * Database handler
+     *
+     * @var Database
+     */
+    private $database;
     
     /**
-     * Initialize admin hooks and pages
+     * Constructor
      */
-    public static function init() {
-        // Handle admin actions first, before any output occurs
-        add_action('admin_init', [__CLASS__, 'handle_admin_actions']);
-        
-        add_action('admin_menu', [__CLASS__, 'register_admin_pages']);
-        add_action('admin_enqueue_scripts', [__CLASS__, 'enqueue_admin_assets']);
-        add_action('wp_ajax_wpvdb_delete_embedding', [__CLASS__, 'ajax_delete_embedding']);
-        add_action('wp_ajax_wpvdb_bulk_embed', [__CLASS__, 'ajax_bulk_embed']);
-        add_action('wp_ajax_wpvdb_validate_provider_change', [__CLASS__, 'ajax_validate_provider_change']);
-        add_action('wp_ajax_wpvdb_confirm_provider_change', [__CLASS__, 'ajax_confirm_provider_change']);
-        add_action('wp_ajax_wpvdb_get_posts_for_indexing', [__CLASS__, 'ajax_get_posts_for_indexing']);
-        add_action('wp_ajax_wpvdb_automattic_connect', [__CLASS__, 'ajax_automattic_connect']);
-        add_action('wp_ajax_wpvdb_reembed_post', [__CLASS__, 'ajax_reembed_post']);
-        add_action('wp_ajax_wpvdb_test_embedding', [__CLASS__, 'ajax_test_embedding']);
-        add_action('wp_ajax_wpvdb_get_embedding_content', [__CLASS__, 'ajax_get_embedding_content']);
-        
-        // Register settings
-        add_action('admin_init', [__CLASS__, 'register_settings']);
-        
-        // Add settings success message
-        add_action('admin_notices', [__CLASS__, 'connection_success_notice']);
-        
-        // Add admin notices for action results
-        add_action('admin_notices', [__CLASS__, 'admin_notices']);
-        
-        // Add database compatibility notice
-        add_action('admin_notices', [__CLASS__, 'database_compatibility_notice']);
-        
-        // Add meta box to post edit screens
-        add_action('add_meta_boxes', [__CLASS__, 'register_meta_boxes']);
-        
-        // Add column to post list tables
-        add_action('admin_init', [__CLASS__, 'register_post_columns']);
-        
-        // Register bulk actions for embedding posts
-        add_action('admin_init', [__CLASS__, 'register_bulk_embed_actions']);
-        
-        // Register post meta for block editor
-        add_action('init', [__CLASS__, 'register_post_meta']);
-        
-        // Enqueue block editor assets
-        add_action('enqueue_block_editor_assets', [__CLASS__, 'enqueue_editor_assets']);
+    public function __construct() {
+        $this->database = new Database();
     }
     
     /**
-     * Check if database is compatible with vector features
-     * 
-     * @return bool Whether the database is compatible
+     * Initialize admin hooks.
      */
-    public static function is_database_compatible() {
-        return \WPVDB\Database::has_native_vector_support();
+    public function init() {
+        // Register admin menu pages
+        add_action('admin_menu', [$this, 'register_admin_pages']);
+        
+        // Register plugin settings 
+        add_action('admin_init', [$this, 'register_settings']);
+        
+        // Load admin assets
+        add_action('admin_enqueue_scripts', [$this, 'enqueue_admin_assets']);
+        
+        // Show admin notices
+        add_action('admin_notices', [$this, 'database_compatibility_notice']);
+        add_action('admin_notices', [$this, 'admin_notices']);
+        
+        // Handle admin actions
+        add_action('admin_init', [$this, 'handle_admin_actions']);
+        
+        // Register AJAX handlers
+        add_action('wp_ajax_wpvdb_validate_provider_change', [$this, 'ajax_validate_provider_change']);
+        add_action('wp_ajax_wpvdb_confirm_provider_change', [$this, 'ajax_confirm_provider_change']);
+        add_action('wp_ajax_wpvdb_delete_embedding', [$this, 'ajax_delete_embedding']);
+        add_action('wp_ajax_wpvdb_bulk_embed', [$this, 'ajax_bulk_embed']);
+        add_action('wp_ajax_wpvdb_get_posts_for_indexing', [$this, 'ajax_get_posts_for_indexing']);
+        add_action('wp_ajax_wpvdb_automattic_connect', [$this, 'ajax_automattic_connect']);
+        add_action('wp_ajax_wpvdb_reembed_post', [$this, 'ajax_reembed_post']);
+        add_action('wp_ajax_wpvdb_test_embedding', [$this, 'ajax_test_embedding']);
+        add_action('wp_ajax_wpvdb_get_embedding_content', [$this, 'ajax_get_embedding_content']);
+        
+        // Add post meta boxes
+        add_action('add_meta_boxes', [$this, 'register_meta_boxes']);
+        
+        // Register post meta fields
+        add_action('init', [$this, 'register_post_meta']);
+        
+        // Add post columns
+        add_action('admin_init', [$this, 'register_post_columns']);
+        
+        // Register bulk actions
+        add_action('admin_init', [$this, 'register_bulk_embed_actions']);
+        
+        // Add scripts to post editor
+        add_action('enqueue_block_editor_assets', [$this, 'enqueue_editor_assets']);
     }
     
     /**
-     * Check if fallbacks are explicitly enabled
-     * 
-     * @return bool Whether fallbacks are enabled
+     * Check if the database is compatible with vector storage.
      */
-    public static function are_fallbacks_enabled() {
-        return \WPVDB\Database::are_fallbacks_enabled();
+    public function is_database_compatible() {
+        return $this->database->has_native_vector_support();
+    }
+    
+    /**
+     * Check if fallbacks are enabled.
+     */
+    public function are_fallbacks_enabled() {
+        return $this->database->are_fallbacks_enabled();
     }
 
     /**
-     * Display admin notice for incompatible databases
+     * Show a notice if the database is not compatible.
      */
-    public static function database_compatibility_notice() {
-        // Skip this notice if database is compatible or we're already on the WPVDB pages
-        if (self::is_database_compatible() || self::are_fallbacks_enabled() || isset($_GET['page']) && strpos($_GET['page'], 'wpvdb-') === 0) {
-            return;
-        }
-        
+    public function database_compatibility_notice() {
+        // Skip if the user can't manage options
         if (!current_user_can('manage_options')) {
             return;
         }
         
-        $db_type = \WPVDB\Database::get_db_type();
+        // Only show if the database is not compatible and fallbacks are not enabled
+        if ($this->is_database_compatible() || $this->are_fallbacks_enabled()) {
+            return;
+        }
+        
+        $db_type = $this->database->get_db_type();
         $min_version = $db_type === 'mysql' ? '8.0.32' : '11.7';
         
         echo '<div class="notice notice-error">';
-        echo '<p><strong>' . __('WordPress Vector Database - Incompatible Database', 'wpvdb') . '</strong></p>';
+        echo '<p><strong>' . esc_html__('WordPress Vector Database requires a compatible database', 'wpvdb') . '</strong></p>';
+        
+        global $wpdb;
+        $version = $wpdb->get_var('SELECT VERSION()');
+        
         echo '<p>' . sprintf(
-            __('Your %1$s database is not compatible with WordPress Vector Database. Vector features require %1$s version %2$s or newer.', 'wpvdb'),
-            ucfirst($db_type),
-            $min_version
+            esc_html__('Your %1$s database (version %2$s) does not support vector columns. Please upgrade to %1$s %3$s or newer, or enable fallbacks.', 'wpvdb'),
+            esc_html(ucfirst($db_type)),
+            esc_html($version),
+            esc_html($min_version)
         ) . '</p>';
-        echo '<p><a href="' . admin_url('admin.php?page=wpvdb-dashboard') . '" class="button button-primary">' . __('View Compatibility Details', 'wpvdb') . '</a></p>';
+        echo '<p><a href="' . esc_url(admin_url('admin.php?page=wpvdb-settings&tab=database')) . '" class="button button-primary">';
+        echo esc_html__('Database Settings', 'wpvdb');
+        echo '</a></p>';
         echo '</div>';
     }
     
     /**
      * Register admin pages
      */
-    public static function register_admin_pages() {
+    public function register_admin_pages() {
         add_menu_page(
             __('Vector Database', 'wpvdb'),
             __('Vector DB', 'wpvdb'),
             'manage_options',
             'wpvdb-dashboard',
-            [__CLASS__, 'render_admin_page'],
+            [$this, 'render_admin_page'],
             'dashicons-database',
             30
         );
         
         // If database is compatible or fallbacks are enabled, show all admin pages
-        if (self::is_database_compatible() || self::are_fallbacks_enabled()) {
+        if ($this->is_database_compatible() || $this->are_fallbacks_enabled()) {
         // Replace individual submenu pages with a single page with tabs
         add_submenu_page(
             'wpvdb-dashboard',
@@ -120,7 +137,7 @@ class Admin {
             __('Dashboard', 'wpvdb'),
             'manage_options',
             'wpvdb-dashboard',
-            [__CLASS__, 'render_admin_page']
+            [$this, 'render_admin_page']
         );
         
         add_submenu_page(
@@ -129,7 +146,7 @@ class Admin {
             __('Embeddings', 'wpvdb'),
             'manage_options',
             'wpvdb-embeddings',
-            [__CLASS__, 'render_admin_page']
+            [$this, 'render_admin_page']
         );
         
         add_submenu_page(
@@ -138,7 +155,7 @@ class Admin {
             __('Settings', 'wpvdb'),
             'manage_options',
             'wpvdb-settings',
-            [__CLASS__, 'render_admin_page']
+            [$this, 'render_admin_page']
         );
         
         // Add new Status page
@@ -148,7 +165,7 @@ class Admin {
             __('Status', 'wpvdb'),
             'manage_options',
             'wpvdb-status',
-            [__CLASS__, 'render_admin_page']
+            [$this, 'render_admin_page']
         );
         
         // Add hidden Automattic connection page
@@ -158,7 +175,7 @@ class Admin {
             __('Connect to Automattic AI', 'wpvdb'),
             'manage_options',
             'wpvdb-automattic-connect',
-            [__CLASS__, 'render_automattic_connect_page']
+            [$this, 'render_automattic_connect_page']
         );
         } else {
             // Only show a single page for incompatible databases
@@ -168,7 +185,7 @@ class Admin {
                 __('Database Compatibility', 'wpvdb'),
                 'manage_options',
                 'wpvdb-dashboard',
-                [__CLASS__, 'render_admin_page']
+                [$this, 'render_admin_page']
             );
         }
     }
@@ -176,11 +193,11 @@ class Admin {
     /**
      * Register plugin settings
      */
-    public static function register_settings() {
+    public function register_settings() {
         register_setting(
             'wpvdb_settings', 
             'wpvdb_settings',
-            [__CLASS__, 'validate_settings']
+            [$this, 'validate_settings']
         );
         
         // Initialize default settings if they don't exist
@@ -211,13 +228,13 @@ class Admin {
         }
         
         // Migrate existing settings to new structure if needed
-        self::maybe_migrate_settings();
+        $this->maybe_migrate_settings();
     }
     
     /**
      * Validate settings and handle provider/model changes
      */
-    public static function validate_settings($input) {
+    public function validate_settings($input) {
         error_log('WPVDB Settings Input: ' . print_r($input, true));
         
         // Get the current settings
@@ -415,7 +432,7 @@ class Admin {
                 $input['pending_model'] = $new_model;
                 
                 // Add admin notice about pending change
-                add_action('admin_notices', [__CLASS__, 'show_pending_change_notice']);
+                add_action('admin_notices', [$this, 'show_pending_change_notice']);
             }
         }
         
@@ -425,7 +442,7 @@ class Admin {
     /**
      * Show admin notice about pending provider/model change
      */
-    public static function show_pending_change_notice() {
+    public function show_pending_change_notice() {
         $settings = get_option('wpvdb_settings', []);
         if (!is_array($settings)) {
             $settings = [];
@@ -503,7 +520,7 @@ class Admin {
     /**
      * Migrate old settings structure to new one with provider support
      */
-    private static function maybe_migrate_settings() {
+    private function maybe_migrate_settings() {
         $settings = get_option('wpvdb_settings', []);
         
         // Ensure settings is an array
@@ -571,33 +588,41 @@ class Admin {
     /**
      * Render the admin page content
      */
-    public static function render_admin_page() {
+    public function render_admin_page() {
         // If database is not compatible and fallbacks are not enabled, show the incompatible database warning
-        if (!self::is_database_compatible() && !self::are_fallbacks_enabled()) {
+        if (!$this->is_database_compatible() && !$this->are_fallbacks_enabled()) {
+            // Get the plugin instance
+            global $wpvdb_plugin;
+            $plugin = $wpvdb_plugin;
             include WPVDB_PLUGIN_DIR . 'admin/views/incompatible-db-warning.php';
             return;
         }
 
         // For compatible databases, show the regular admin pages
-        $tab = self::get_current_tab();
-        $section = self::get_current_section();
+        $tab = $this->get_current_tab();
+        $section = $this->get_current_section();
         
         // Default to dashboard if no tab is specified
         if (empty($tab)) {
             $tab = 'dashboard';
         }
         
-        $tabs = self::get_admin_tabs();
+        $tabs = $this->get_admin_tabs();
+        
+        // Pass the current instance to views
+        $admin = $this;
                 
         // Render admin header
         include WPVDB_PLUGIN_DIR . 'admin/views/header.php';
         
         // Render tab content
-        $view_file = WPVDB_PLUGIN_DIR . 'admin/views/' . $tab . '.php';
-        if (file_exists($view_file)) {
-            include $view_file;
+        $tab_file = WPVDB_PLUGIN_DIR . 'admin/views/' . $tab . '.php';
+        if (file_exists($tab_file)) {
+            include $tab_file;
         } else {
-            echo '<div class="notice notice-error"><p>' . __('View file not found.', 'wpvdb') . '</p></div>';
+            echo '<div class="notice notice-error"><p>';
+            printf(__('Tab file not found: %s', 'wpvdb'), esc_html($tab));
+            echo '</p></div>';
         }
         
         // Render admin footer
@@ -607,7 +632,7 @@ class Admin {
     /**
      * Get the current tab from the page parameter
      */
-    private static function get_current_tab() {
+    private function get_current_tab() {
         $page = isset($_GET['page']) ? sanitize_text_field($_GET['page']) : 'wpvdb-dashboard';
         // Use str_starts_with safely by ensuring $page is a string
         $tab = (is_string($page) && str_starts_with($page, 'wpvdb-')) ? substr($page, 6) : 'dashboard';
@@ -618,14 +643,14 @@ class Admin {
     /**
      * Get the current section from the section parameter
      */
-    private static function get_current_section() {
+    private function get_current_section() {
         return isset($_GET['section']) ? sanitize_text_field($_GET['section']) : '';
     }
     
     /**
      * Define available admin tabs
      */
-    private static function get_admin_tabs() {
+    private function get_admin_tabs() {
         return [
             'dashboard' => __('Dashboard', 'wpvdb'),
             'embeddings' => __('Embeddings', 'wpvdb'),
@@ -637,7 +662,7 @@ class Admin {
     /**
      * Enqueue assets for the admin screens
      */
-    public static function enqueue_admin_assets($hook) {
+    public function enqueue_admin_assets($hook) {
         $admin_pages = ['toplevel_page_wpvdb-dashboard', 'wpvdb_page_wpvdb-embeddings', 'wpvdb_page_wpvdb-settings', 'wpvdb_page_wpvdb-status'];
         
         // Only load our assets on our admin pages
@@ -693,7 +718,7 @@ class Admin {
     /**
      * Ajax handler for validating provider/model changes
      */
-    public static function ajax_validate_provider_change() {
+    public function ajax_validate_provider_change() {
         check_ajax_referer('wpvdb-admin', 'nonce');
         
         if (!current_user_can('manage_options')) {
@@ -723,7 +748,7 @@ class Admin {
     /**
      * Ajax handler for confirming provider/model changes
      */
-    public static function ajax_confirm_provider_change() {
+    public function ajax_confirm_provider_change() {
         check_ajax_referer('wpvdb-admin', 'nonce');
         
         if (!current_user_can('manage_options')) {
@@ -778,10 +803,15 @@ class Admin {
             $settings['pending_model'] = '';
         }
         
+        // Add debug information to the log
+        error_log('WPVDB: Current settings before change: ' . print_r($settings, true));
+        
         if ($cancel) {
             // User wants to cancel the pending change
             error_log('WPVDB: Cancelling pending provider change');
-            error_log('WPVDB: Current settings: ' . print_r($settings, true));
+            
+            // Store the original settings for logging
+            $original_settings = $settings;
             
             $settings['provider'] = $settings['active_provider'];
             if ($settings['active_provider'] === 'openai') {
@@ -795,32 +825,84 @@ class Admin {
             $settings['pending_model'] = '';
             
             update_option('wpvdb_settings', $settings);
+            
+            // Log the changes
+            error_log('WPVDB: Provider change cancelled');
+            error_log('WPVDB: Original settings: ' . print_r($original_settings, true));
             error_log('WPVDB: Updated settings: ' . print_r($settings, true));
             
             wp_send_json_success([
                 'message' => __('Provider change cancelled', 'wpvdb'),
+                'debug' => [
+                    'action' => 'cancel',
+                    'original_settings' => $original_settings,
+                    'updated_settings' => $settings
+                ]
             ]);
         } else {
             // User confirms the provider change
             global $wpdb;
             $table_name = $wpdb->prefix . 'wpvdb_embeddings';
             
+            // Store the original settings for logging
+            $original_settings = $settings;
+            
+            // Get embedding count before deletion
+            $embedding_count = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$table_name}");
+            
             // Delete all existing embeddings
-            $wpdb->query("TRUNCATE TABLE {$table_name}");
+            $result = $wpdb->query("TRUNCATE TABLE {$table_name}");
+            
+            if ($result === false) {
+                error_log('WPVDB: Error truncating embeddings table: ' . $wpdb->last_error);
+                wp_send_json_error([
+                    'message' => __('Error deleting embeddings: ', 'wpvdb') . $wpdb->last_error,
+                ]);
+                return;
+            }
             
             // Activate the pending provider/model
             if (!empty($settings['pending_provider']) && !empty($settings['pending_model'])) {
+                // Log the change
+                error_log('WPVDB: Applying provider change');
+                error_log('WPVDB: From ' . $settings['active_provider'] . '/' . $settings['active_model'] . ' to ' . $settings['pending_provider'] . '/' . $settings['pending_model']);
+                
                 $settings['active_provider'] = $settings['pending_provider'];
                 $settings['active_model'] = $settings['pending_model'];
+                $settings['provider'] = $settings['pending_provider']; // Also update the main provider setting
+                
+                // Update the provider-specific model setting
+                if ($settings['active_provider'] === 'openai') {
+                    $settings['openai']['default_model'] = $settings['active_model'];
+                } else {
+                    $settings['automattic']['default_model'] = $settings['active_model'];
+                }
+                
                 $settings['pending_provider'] = '';
                 $settings['pending_model'] = '';
                 
                 update_option('wpvdb_settings', $settings);
                 
+                // Log the updated settings
+                error_log('WPVDB: Provider change applied successfully');
+                error_log('WPVDB: Original settings: ' . print_r($original_settings, true));
+                error_log('WPVDB: Updated settings: ' . print_r($settings, true));
+                error_log('WPVDB: Deleted ' . $embedding_count . ' embeddings');
+                
                 wp_send_json_success([
-                    'message' => __('Provider changed successfully. All embeddings have been deleted. Please re-index your content.', 'wpvdb'),
+                    'message' => sprintf(
+                        __('Provider changed successfully. %d embeddings have been deleted. Please re-index your content.', 'wpvdb'),
+                        $embedding_count
+                    ),
+                    'debug' => [
+                        'action' => 'apply',
+                        'embedding_count_deleted' => $embedding_count,
+                        'original_settings' => $original_settings,
+                        'updated_settings' => $settings
+                    ]
                 ]);
             } else {
+                error_log('WPVDB: No pending provider change found');
                 wp_send_json_error([
                     'message' => __('No pending provider change found.', 'wpvdb'),
                 ]);
@@ -831,7 +913,7 @@ class Admin {
     /**
      * Ajax handler for deleting embeddings
      */
-    public static function ajax_delete_embedding() {
+    public function ajax_delete_embedding() {
         check_ajax_referer('wpvdb-admin', 'nonce');
         
         if (!current_user_can('manage_options')) {
@@ -857,7 +939,7 @@ class Admin {
     /**
      * Ajax handler for bulk embedding
      */
-    public static function ajax_bulk_embed() {
+    public function ajax_bulk_embed() {
         check_ajax_referer('wpvdb-admin', 'nonce');
         
         if (!current_user_can('manage_options')) {
@@ -957,7 +1039,7 @@ class Admin {
     /**
      * Ajax handler to get posts for indexing
      */
-    public static function ajax_get_posts_for_indexing() {
+    public function ajax_get_posts_for_indexing() {
         check_ajax_referer('wpvdb-admin', 'nonce');
         
         if (!current_user_can('manage_options')) {
@@ -1009,7 +1091,7 @@ class Admin {
     /**
      * Display success notice after connecting to Automattic AI
      */
-    public static function connection_success_notice() {
+    public function connection_success_notice() {
         // Check for the transient we set in validate_settings
         if (get_transient('wpvdb_connection_success')) {
             delete_transient('wpvdb_connection_success');
@@ -1032,7 +1114,7 @@ class Admin {
     /**
      * Render Automattic connection page
      */
-    public static function render_automattic_connect_page() {
+    public function render_automattic_connect_page() {
         $settings = get_option('wpvdb_settings');
         include WPVDB_PLUGIN_DIR . 'admin/views/automattic-connect.php';
     }
@@ -1040,7 +1122,7 @@ class Admin {
     /**
      * AJAX handler for Automattic connection
      */
-    public static function ajax_automattic_connect() {
+    public function ajax_automattic_connect() {
         check_ajax_referer('wpvdb-admin', 'nonce');
         
         if (!current_user_can('manage_options')) {
@@ -1074,7 +1156,7 @@ class Admin {
     /**
      * Register meta boxes for post edit screens
      */
-    public static function register_meta_boxes() {
+    public function register_meta_boxes() {
         // Get supported post types from settings
         $post_types = Settings::get_auto_embed_post_types();
         
@@ -1082,7 +1164,7 @@ class Admin {
             add_meta_box(
                 'wpvdb-embedding-status',
                 __('Vector Database Embeddings', 'wpvdb'),
-                [__CLASS__, 'render_embedding_meta_box'],
+                [$this, 'render_embedding_meta_box'],
                 $post_type,
                 'side',
                 'default'
@@ -1095,7 +1177,7 @@ class Admin {
      * 
      * @param WP_Post $post
      */
-    public static function render_embedding_meta_box($post) {
+    public function render_embedding_meta_box($post) {
         // Check if post has embeddings
         $is_embedded = get_post_meta($post->ID, '_wpvdb_embedded', true);
         $chunks_count = get_post_meta($post->ID, '_wpvdb_chunks_count', true);
@@ -1231,13 +1313,13 @@ class Admin {
     /**
      * Register columns for post list tables
      */
-    public static function register_post_columns() {
+    public function register_post_columns() {
         // Get supported post types from settings
         $post_types = Settings::get_auto_embed_post_types();
         
         foreach ($post_types as $post_type) {
-            add_filter("manage_{$post_type}_posts_columns", [__CLASS__, 'add_embedding_column']);
-            add_action("manage_{$post_type}_posts_custom_column", [__CLASS__, 'render_embedding_column'], 10, 2);
+            add_filter("manage_{$post_type}_posts_columns", [$this, 'add_embedding_column']);
+            add_action("manage_{$post_type}_posts_custom_column", [$this, 'render_embedding_column'], 10, 2);
         }
     }
     
@@ -1247,7 +1329,7 @@ class Admin {
      * @param array $columns
      * @return array
      */
-    public static function add_embedding_column($columns) {
+    public function add_embedding_column($columns) {
         // Add the embeddings column at the end
         $columns['wpvdb_embedded'] = '<span class="dashicons dashicons-database" title="' . esc_attr__('Embeddings', 'wpvdb') . '"></span><span class="screen-reader-text">' . __('Embeddings', 'wpvdb') . '</span>';
         
@@ -1260,7 +1342,7 @@ class Admin {
      * @param string $column_name
      * @param int $post_id
      */
-    public static function render_embedding_column($column_name, $post_id) {
+    public function render_embedding_column($column_name, $post_id) {
         if ($column_name !== 'wpvdb_embedded') {
             return;
         }
@@ -1303,7 +1385,7 @@ class Admin {
     /**
      * AJAX handler for re-embedding a post
      */
-    public static function ajax_reembed_post() {
+    public function ajax_reembed_post() {
         check_ajax_referer('wpvdb-admin', 'nonce');
         
         if (!current_user_can('edit_posts')) {
@@ -1367,7 +1449,7 @@ class Admin {
     /**
      * AJAX handler for testing embedding generation
      */
-    public static function ajax_test_embedding() {
+    public function ajax_test_embedding() {
         check_ajax_referer('wpvdb-admin', 'nonce');
         if (!current_user_can('manage_options')) {
             wp_send_json_error(['message' => __('You do not have permission to perform this action.', 'wpvdb')]);
@@ -1398,7 +1480,7 @@ class Admin {
         }
         
         // Get API key
-        $api_key = Settings::get_provider_api_key($provider);
+        $api_key = Settings::get_api_key_for_provider($provider);
         
         if (empty($api_key)) {
             wp_send_json_error(['message' => sprintf(
@@ -1436,7 +1518,7 @@ class Admin {
     /**
      * AJAX handler to get the full content of an embedding by ID
      */
-    public static function ajax_get_embedding_content() {
+    public function ajax_get_embedding_content() {
         // Check nonce
         if (!check_ajax_referer('wpvdb_ajax_nonce', 'nonce', false)) {
             wp_send_json_error(['message' => __('Security check failed', 'wpvdb')]);
@@ -1479,7 +1561,7 @@ class Admin {
     /**
      * Handle admin actions for our tools.
      */
-    public static function handle_admin_actions() {
+    public function handle_admin_actions() {
         // Check if we're on our admin page
         if (!isset($_GET['page']) || $_GET['page'] !== 'wpvdb-status') {
             return;
@@ -1506,26 +1588,26 @@ class Admin {
             exit;
         }
         
-        // Force recreate tables action
-        if ($action === 'recreate_tables') {
-            if (!isset($_POST['_wpnonce']) || !wp_verify_nonce($_POST['_wpnonce'], 'wpvdb_recreate_tables')) {
-                wp_die(__('Security check failed', 'wpvdb'));
+        // Recreate tables
+        if (isset($_GET['action']) && $_GET['action'] === 'wpvdb_recreate_tables') {
+            check_admin_referer('wpvdb_recreate_tables');
+            
+            // For safety, only allow this action if the user has manage_options
+            if (!current_user_can('manage_options')) {
+                wp_die(__('You do not have sufficient permissions to access this page.', 'wpvdb'));
             }
             
-            // Start output buffering to catch any unwanted output
-            ob_start();
+            // Check if Force flag is set
+            $force = isset($_GET['force']) && $_GET['force'] === '1';
             
             // Call the forcible table recreation method
-            $success = Activation::recreate_tables_force();
+            $success = Activation::recreate_tables();
             
             // Store the status message in a transient
             set_transient('wpvdb_table_recreate_status', $success ? 'success' : 'error', 60);
             
-            // Clear any output that might have been generated
-            ob_end_clean();
-            
-            // Redirect to the same page without the action parameters
-            wp_safe_redirect(remove_query_arg(['action', '_wpnonce']));
+            // Redirect back to the status page
+            wp_safe_redirect(admin_url('admin.php?page=wpvdb-status'));
             exit;
         }
         
@@ -1561,7 +1643,7 @@ class Admin {
     /**
      * Display admin notices for action results
      */
-    public static function admin_notices() {
+    public function admin_notices() {
         // Check for table recreation status
         $recreate_status = get_transient('wpvdb_table_recreate_status');
         if ($recreate_status) {
@@ -1607,7 +1689,7 @@ class Admin {
     /**
      * Register post meta for the block editor
      */
-    public static function register_post_meta() {
+    public function register_post_meta() {
         // Define the post types that support embeddings
         $post_types = Settings::get_auto_embed_post_types();
         if (empty($post_types)) {
@@ -1657,7 +1739,7 @@ class Admin {
     /**
      * Enqueue assets for the block editor
      */
-    public static function enqueue_editor_assets() {
+    public function enqueue_editor_assets() {
         // Enqueue the editor plugin script
         wp_enqueue_script(
             'wpvdb-editor-row',
@@ -1679,12 +1761,12 @@ class Admin {
     /**
      * Register bulk actions for embedding posts in supported post types
      */
-    public static function register_bulk_embed_actions() {
+    public function register_bulk_embed_actions() {
         $post_types = Settings::get_auto_embed_post_types();
         
         foreach ($post_types as $post_type) {
-            add_filter("bulk_actions-edit-{$post_type}", [__CLASS__, 'add_bulk_embed_action']);
-            add_filter("handle_bulk_actions-edit-{$post_type}", [__CLASS__, 'handle_bulk_embed_action'], 10, 3);
+            add_filter("bulk_actions-edit-{$post_type}", [$this, 'add_bulk_embed_action']);
+            add_filter("handle_bulk_actions-edit-{$post_type}", [$this, 'handle_bulk_embed_action'], 10, 3);
         }
     }
     
@@ -1694,7 +1776,7 @@ class Admin {
      * @param array $bulk_actions
      * @return array
      */
-    public static function add_bulk_embed_action($bulk_actions) {
+    public function add_bulk_embed_action($bulk_actions) {
         $bulk_actions['wpvdb_bulk_embed'] = __('Generate Embeddings', 'wpvdb');
         return $bulk_actions;
     }
@@ -1707,7 +1789,7 @@ class Admin {
      * @param array $post_ids Array of post IDs
      * @return string Modified redirect URL
      */
-    public static function handle_bulk_embed_action($redirect_to, $action, $post_ids) {
+    public function handle_bulk_embed_action($redirect_to, $action, $post_ids) {
         if ($action !== 'wpvdb_bulk_embed') {
             return $redirect_to;
         }
