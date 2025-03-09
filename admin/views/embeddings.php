@@ -81,7 +81,7 @@
         $database = new \WPVDB\Database();
         
         // Get plugin settings
-        $api_key = \WPVDB\Settings::get_api_key();
+        $settings = \WPVDB\Settings::get_instance();
         $model = \WPVDB\Settings::get_default_model();
         $api_base = \WPVDB\Settings::get_api_base();
         $db_type = $database->get_db_type();

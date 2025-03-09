@@ -12,6 +12,44 @@ defined('ABSPATH') || exit;
 // Get the database instance
 $database = $wpvdb_plugin->get_database();
 
+// Check vector index status
+$vector_index_status = [
+    'exists' => false,
+    'health' => 'unknown',
+    'optimization' => false
+];
+
+// Check if vector index exists (only for MariaDB)
+if ($database->get_db_type() === 'mariadb' && $database->has_native_vector_support()) {
+    global $wpdb;
+    $table_name = $wpdb->prefix . 'wpvdb_embeddings';
+    
+    // Check if the table exists first
+    $table_exists = $wpdb->get_var("SHOW TABLES LIKE '$table_name'") === $table_name;
+    
+    if ($table_exists) {
+        // Check if the index exists
+        $index_exists = $wpdb->get_var("SHOW INDEX FROM $table_name WHERE Key_name = 'embedding_idx'") !== null;
+        $vector_index_status['exists'] = $index_exists;
+        
+        if ($index_exists) {
+            // Check if other supporting indexes exist for optimal performance
+            $has_doc_id_index = $wpdb->get_var("SHOW INDEX FROM $table_name WHERE Key_name = 'doc_id_idx'") !== null;
+            $has_doc_type_index = $wpdb->get_var("SHOW INDEX FROM $table_name WHERE Key_name = 'doc_type_idx'") !== null;
+            
+            $vector_index_status['optimization'] = $has_doc_id_index && $has_doc_type_index;
+            
+            // Check index health by running EXPLAIN on a simple query
+            try {
+                $result = $wpdb->get_row("EXPLAIN SELECT * FROM $table_name ORDER BY COSINE_DISTANCE(embedding, '[1,0,0]') LIMIT 1");
+                $vector_index_status['health'] = (isset($result->key) && $result->key === 'embedding_idx') ? 'good' : 'suboptimal';
+            } catch (\Exception $e) {
+                $vector_index_status['health'] = 'error';
+            }
+        }
+    }
+}
+
 // Get current settings
 $settings = get_option('wpvdb_settings', []);
 if (!is_array($settings)) {
@@ -80,7 +118,7 @@ if (!array_key_exists($current_section, $sections)) {
 
 ?>
 <div class="wrap wpvdb-admin">
-    <h1><?php _e('Status', 'wpvdb'); ?></h1>
+
     
     <?php if ($has_pending_change): ?>
     <div class="notice notice-warning inline">
@@ -211,6 +249,56 @@ if (!array_key_exists($current_section, $sections)) {
                         <?php endif; ?>
                     </td>
                 </tr>
+                
+                <?php if ($database->get_db_type() === 'mariadb' && $database->has_native_vector_support()): ?>
+                <tr>
+                    <th><?php _e('Vector Index', 'wpvdb'); ?></th>
+                    <td>
+                        <?php if ($vector_index_status['exists']): ?>
+                            <span class="dashicons dashicons-yes" style="color:green;"></span> <?php _e('Available', 'wpvdb'); ?>
+                        <?php else: ?>
+                            <span class="dashicons dashicons-no" style="color:red;"></span> <?php _e('Not Created', 'wpvdb'); ?>
+                            <?php if ($system_info['embedding_table_exists'] === 'Yes'): ?>
+                            <a href="<?php echo esc_url(admin_url('admin.php?page=wpvdb-status&section=tools')); ?>" class="button button-small" style="margin-left: 10px;">
+                                <?php _e('Create Index', 'wpvdb'); ?>
+                            </a>
+                            <?php endif; ?>
+                        <?php endif; ?>
+                    </td>
+                </tr>
+                <?php if ($vector_index_status['exists']): ?>
+                <tr>
+                    <th><?php _e('Vector Index Health', 'wpvdb'); ?></th>
+                    <td>
+                        <?php if ($vector_index_status['health'] === 'good'): ?>
+                            <span class="dashicons dashicons-yes" style="color:green;"></span> <?php _e('Good', 'wpvdb'); ?>
+                        <?php elseif ($vector_index_status['health'] === 'suboptimal'): ?>
+                            <span class="dashicons dashicons-warning" style="color:orange;"></span> <?php _e('Suboptimal', 'wpvdb'); ?>
+                            <span class="description" style="display:block;margin-top:4px">
+                                <?php _e('Index may not be used for all queries.', 'wpvdb'); ?>
+                            </span>
+                        <?php elseif ($vector_index_status['health'] === 'error'): ?>
+                            <span class="dashicons dashicons-no" style="color:red;"></span> <?php _e('Error', 'wpvdb'); ?>
+                        <?php else: ?>
+                            <span class="dashicons dashicons-editor-help"></span> <?php _e('Unknown', 'wpvdb'); ?>
+                        <?php endif; ?>
+                    </td>
+                </tr>
+                <tr>
+                    <th><?php _e('Index Optimization', 'wpvdb'); ?></th>
+                    <td>
+                        <?php if ($vector_index_status['optimization']): ?>
+                            <span class="dashicons dashicons-yes" style="color:green;"></span> <?php _e('Optimized', 'wpvdb'); ?>
+                        <?php else: ?>
+                            <span class="dashicons dashicons-no" style="color:orange;"></span> <?php _e('Not Fully Optimized', 'wpvdb'); ?>
+                            <a href="#" id="wpvdb-optimize-vector-index" class="button button-small" style="margin-left: 10px;">
+                                <?php _e('Optimize Now', 'wpvdb'); ?>
+                            </a>
+                        <?php endif; ?>
+                    </td>
+                </tr>
+                <?php endif; ?>
+                <?php endif; ?>
             </tbody>
         </table>
         
@@ -458,53 +546,122 @@ if (!array_key_exists($current_section, $sections)) {
         </div>
         
         <div class="wpvdb-card">
-            <h3><?php _e('Test Embedding', 'wpvdb'); ?></h3>
-            <p><?php _e('Test the embedding functionality with your current configuration.', 'wpvdb'); ?></p>
+            <h3><?php _e('Test Embedding Generation', 'wpvdb'); ?></h3>
+            <p><?php _e('Test text embedding generation with your current provider.', 'wpvdb'); ?></p>
             <p>
-                <button id="wpvdb-test-embedding-button" class="button">
+                <button id="wpvdb-test-embedding-button" class="button button-primary">
                     <?php _e('Test Embedding', 'wpvdb'); ?>
                 </button>
             </p>
         </div>
+        
+        <!-- Test Embedding Modal -->
+        <div id="wpvdb-test-embedding-modal" class="wpvdb-modal" style="display: none;">
+            <div class="wpvdb-modal-content">
+                <span class="wpvdb-modal-close">&times;</span>
+                <h2><?php _e('Test Text Embedding', 'wpvdb'); ?></h2>
+                
+                <form id="wpvdb-test-embedding-form">
+                    <div class="wpvdb-form-group">
+                        <label for="wpvdb-test-provider"><?php _e('Provider', 'wpvdb'); ?></label>
+                        <select id="wpvdb-test-provider" name="provider">
+                            <?php 
+                            $providers = \WPVDB\Providers::get_available_providers();
+                            foreach ($providers as $provider_id => $provider_name) {
+                                $selected = ($provider_id === $active_provider) ? 'selected' : '';
+                                echo '<option value="' . esc_attr($provider_id) . '" ' . $selected . '>' . esc_html($provider_name) . '</option>';
+                            }
+                            ?>
+                        </select>
+                    </div>
+                    
+                    <div class="wpvdb-form-group">
+                        <label for="wpvdb-test-model"><?php _e('Model', 'wpvdb'); ?></label>
+                        <select id="wpvdb-test-model" name="model">
+                            <?php 
+                            $models = \WPVDB\Models::get_available_models();
+                            foreach ($models as $model_id => $model_name) {
+                                $selected = ($model_id === $active_model) ? 'selected' : '';
+                                echo '<option value="' . esc_attr($model_id) . '" ' . $selected . '>' . esc_html($model_name) . '</option>';
+                            }
+                            ?>
+                        </select>
+                    </div>
+                    
+                    <div class="wpvdb-form-group">
+                        <label for="wpvdb-test-text"><?php _e('Text to Embed', 'wpvdb'); ?></label>
+                        <textarea id="wpvdb-test-text" name="text" rows="5" placeholder="<?php esc_attr_e('Enter text to generate an embedding for...', 'wpvdb'); ?>"></textarea>
+                    </div>
+                    
+                    <div class="wpvdb-form-actions">
+                        <button type="submit" class="button button-primary"><?php _e('Generate Embedding', 'wpvdb'); ?></button>
+                        <button type="button" class="button wpvdb-modal-cancel"><?php _e('Cancel', 'wpvdb'); ?></button>
+                    </div>
+                </form>
+                
+                <div id="wpvdb-test-embedding-results" style="display: none; margin-top: 20px;">
+                    <h3><?php _e('Results', 'wpvdb'); ?></h3>
+                    <div class="wpvdb-status-message"></div>
+                    <div class="wpvdb-embedding-info"></div>
+                </div>
+            </div>
+        </div>
+        
+        <?php if ($database->get_db_type() === 'mariadb' && $database->has_native_vector_support()): ?>
+        <div class="wpvdb-card">
+            <h3><?php _e('Vector Index Management', 'wpvdb'); ?></h3>
+            
+            <?php if (!$vector_index_status['exists']): ?>
+            <p><?php _e('Create a vector index to improve search performance.', 'wpvdb'); ?></p>
+            <p>
+                <button id="wpvdb-create-vector-index" class="button button-primary">
+                    <?php _e('Create Vector Index', 'wpvdb'); ?>
+                </button>
+            </p>
+            <p class="description">
+                <?php _e('This will create a HNSW vector index optimized for semantic search.', 'wpvdb'); ?>
+            </p>
+            <?php else: ?>
+            <p><?php _e('Your vector index status:', 'wpvdb'); ?></p>
+            <div class="wpvdb-status-row">
+                <div class="wpvdb-status-label"><?php _e('Health:', 'wpvdb'); ?></div>
+                <div class="wpvdb-status-value">
+                    <?php if ($vector_index_status['health'] === 'good'): ?>
+                        <span class="dashicons dashicons-yes"></span> <?php _e('Good', 'wpvdb'); ?>
+                    <?php elseif ($vector_index_status['health'] === 'suboptimal'): ?>
+                        <span class="dashicons dashicons-warning"></span> <?php _e('Suboptimal', 'wpvdb'); ?>
+                    <?php elseif ($vector_index_status['health'] === 'error'): ?>
+                        <span class="dashicons dashicons-no"></span> <?php _e('Error', 'wpvdb'); ?>
+                    <?php else: ?>
+                        <span class="dashicons dashicons-editor-help"></span> <?php _e('Unknown', 'wpvdb'); ?>
+                    <?php endif; ?>
+                </div>
+            </div>
+            <div class="wpvdb-status-row">
+                <div class="wpvdb-status-label"><?php _e('Optimization:', 'wpvdb'); ?></div>
+                <div class="wpvdb-status-value">
+                    <?php if ($vector_index_status['optimization']): ?>
+                        <span class="dashicons dashicons-yes"></span> <?php _e('Optimized', 'wpvdb'); ?>
+                    <?php else: ?>
+                        <span class="dashicons dashicons-warning"></span> <?php _e('Not Fully Optimized', 'wpvdb'); ?>
+                    <?php endif; ?>
+                </div>
+            </div>
+            
+            <div class="wpvdb-vector-index-actions">
+                <button id="wpvdb-optimize-vector-index-tool" class="button button-primary">
+                    <?php _e('Optimize Vector Index', 'wpvdb'); ?>
+                </button>
+                <button id="wpvdb-recreate-vector-index" class="button">
+                    <?php _e('Recreate Index', 'wpvdb'); ?>
+                </button>
+            </div>
+            <p class="description">
+                <?php _e('Optimization creates supporting indexes and updates table statistics.', 'wpvdb'); ?>
+            </p>
+            <?php endif; ?>
+        </div>
+        <?php endif; ?>
     </div>
 </div>
-
-<!-- Test Embedding Modal -->
-<div id="wpvdb-test-embedding-modal" class="wpvdb-modal">
-    <div class="wpvdb-modal-content">
-        <span class="wpvdb-modal-close">&times;</span>
-        <h2><?php esc_html_e('Test Embedding Generation', 'wpvdb'); ?></h2>
-        
-        <form id="wpvdb-test-embedding-form">
-            <div class="wpvdb-form-group">
-                <label for="wpvdb-test-provider"><?php esc_html_e('Provider', 'wpvdb'); ?></label>
-                <select id="wpvdb-test-provider" name="provider">
-                    <option value="openai" <?php selected($active_provider, 'openai'); ?>><?php esc_html_e('OpenAI', 'wpvdb'); ?></option>
-                    <option value="automattic" <?php selected($active_provider, 'automattic'); ?>><?php esc_html_e('Automattic AI', 'wpvdb'); ?></option>
-                </select>
-            </div>
-            
-            <div class="wpvdb-form-group">
-                <label for="wpvdb-test-model"><?php esc_html_e('Model', 'wpvdb'); ?></label>
-                <select id="wpvdb-test-model" name="model">
-                    <!-- Models will be populated via JavaScript -->
-                </select>
-            </div>
-            
-            <div class="wpvdb-form-group">
-                <label for="wpvdb-test-text"><?php esc_html_e('Text to Embed', 'wpvdb'); ?></label>
-                <textarea id="wpvdb-test-text" name="text" rows="5" style="width: 100%;" placeholder="<?php esc_attr_e('Enter some text to generate an embedding...', 'wpvdb'); ?>"></textarea>
-            </div>
-            
-            <div class="wpvdb-form-actions">
-                <button type="submit" class="button button-primary"><?php esc_html_e('Generate Embedding', 'wpvdb'); ?></button>
-                <button type="button" class="button wpvdb-modal-cancel"><?php esc_html_e('Cancel', 'wpvdb'); ?></button>
-            </div>
-        </form>
-        
-        <div id="wpvdb-test-embedding-results" style="display: none; margin-top: 20px;">
-            <div class="wpvdb-status-message"></div>
-            <div class="wpvdb-embedding-info"></div>
-        </div>
-    </div>
-</div> 
+</div><!-- .wrap --> 

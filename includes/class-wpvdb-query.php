@@ -111,15 +111,22 @@ class Query {
                     $distance_function = self::$database->get_vector_distance_function('embedding', $vector_function, 'cosine');
                     error_log('[WPVDB DEBUG] Using distance function: ' . $distance_function);
                     
-                    // Optimized query that will use the vector index
-                    // The ORDER BY + LIMIT pattern is what triggers the vector index usage
+                    // Set an appropriate similarity threshold - we discovered this is critical for performance
+                    // Lower values (0.2-0.3) are more strict but faster, higher values (0.4-0.6) give more results
+                    $similarity_threshold = apply_filters('wpvdb_similarity_threshold', 0.35);
+                    
+                    // Optimized query that uses the vector index with a distance threshold
+                    // The threshold + ORDER BY + LIMIT pattern is what maximizes vector index usage
                     $sql = $wpdb->prepare("
                         SELECT doc_id,
-                            $distance_function as distance
+                            $distance_function AS distance
                         FROM $table_name
+                        WHERE $distance_function < %f
                         ORDER BY distance
                         LIMIT %d
-                    ", $limit * 3 // fetch more candidates than needed
+                    ", 
+                    $similarity_threshold,
+                    $limit * 3 // fetch more candidates than needed
                     );
                     
                     error_log('[WPVDB DEBUG] Vector search SQL: ' . $sql);

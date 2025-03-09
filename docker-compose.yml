@@ -52,10 +52,16 @@ services:
       WORDPRESS_DB_USER: wordpress
       WORDPRESS_DB_PASSWORD: wordpress
       WORDPRESS_DB_NAME: wordpress
-      WORDPRESS_DEBUG: 0
+      WORDPRESS_DEBUG: 1
       WORDPRESS_CONFIG_EXTRA: |
         define('WP_ENVIRONMENT_TYPE', 'development');
+        define('WP_DEBUG', true);
         define('WP_DEBUG_LOG', true);
+        define('WP_DEBUG_DISPLAY', false);
+        define('SCRIPT_DEBUG', true);
+        define('SAVEQUERIES', true);
+        ini_set('error_log', ABSPATH . 'wp-content/debug.log');
+        ini_set('display_errors', 0);
         define('WP_HOME', 'http://localhost:9080');
         define('WP_SITEURL', 'http://localhost:9080');
     volumes:
@@ -78,15 +84,23 @@ services:
       resources:
         limits:
           memory: 1G
+    entrypoint: ["docker-entrypoint.sh"]
+    command: ["apache2-foreground"]
     environment:
       WORDPRESS_DB_HOST: mariadb
       WORDPRESS_DB_USER: wordpress
       WORDPRESS_DB_PASSWORD: wordpress
       WORDPRESS_DB_NAME: wordpress
-      WORDPRESS_DEBUG: 0
+      WORDPRESS_DEBUG: 1
       WORDPRESS_CONFIG_EXTRA: |
         define('WP_ENVIRONMENT_TYPE', 'development');
+        define('WP_DEBUG', true);
         define('WP_DEBUG_LOG', true);
+        define('WP_DEBUG_DISPLAY', false);
+        define('SCRIPT_DEBUG', true);
+        define('SAVEQUERIES', true);
+        ini_set('error_log', ABSPATH . 'wp-content/debug.log');
+        ini_set('display_errors', 0);
         define('WP_HOME', 'http://localhost:9081');
         define('WP_SITEURL', 'http://localhost:9081');
     volumes:

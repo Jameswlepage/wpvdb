@@ -29,6 +29,13 @@ class Providers {
                 'api_base' => 'https://public-api.wordpress.com/wpcom/v2/ai-api-proxy/v1/embeddings/text',
                 'api_key_constant' => 'WPVDB_AUTOMATTIC_API_KEY',
                 'description' => __('Automattic AI offers embedding models optimized for WordPress content.', 'wpvdb')
+            ],
+            'specter' => [
+                'name' => 'specter',
+                'label' => 'SPECTER',
+                'api_base' => 'http://localhost:8000/v1/',
+                'api_key_constant' => '',  // No API key needed for local server
+                'description' => __('SPECTER2 is a research model for scientific document embeddings, running locally.', 'wpvdb')
             ]
         ];
         

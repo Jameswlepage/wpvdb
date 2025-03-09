@@ -22,21 +22,14 @@ class Admin {
      * Initialize admin hooks.
      */
     public function init() {
-        // Register admin menu pages
+        // Register admin pages
         add_action('admin_menu', [$this, 'register_admin_pages']);
         
-        // Register plugin settings 
+        // Register settings
         add_action('admin_init', [$this, 'register_settings']);
         
-        // Load admin assets
+        // Register admin assets
         add_action('admin_enqueue_scripts', [$this, 'enqueue_admin_assets']);
-        
-        // Show admin notices
-        add_action('admin_notices', [$this, 'database_compatibility_notice']);
-        add_action('admin_notices', [$this, 'admin_notices']);
-        
-        // Handle admin actions
-        add_action('admin_init', [$this, 'handle_admin_actions']);
         
         // Register AJAX handlers
         add_action('wp_ajax_wpvdb_validate_provider_change', [$this, 'ajax_validate_provider_change']);
@@ -44,10 +37,22 @@ class Admin {
         add_action('wp_ajax_wpvdb_delete_embedding', [$this, 'ajax_delete_embedding']);
         add_action('wp_ajax_wpvdb_bulk_embed', [$this, 'ajax_bulk_embed']);
         add_action('wp_ajax_wpvdb_get_posts_for_indexing', [$this, 'ajax_get_posts_for_indexing']);
-        add_action('wp_ajax_wpvdb_automattic_connect', [$this, 'ajax_automattic_connect']);
         add_action('wp_ajax_wpvdb_reembed_post', [$this, 'ajax_reembed_post']);
         add_action('wp_ajax_wpvdb_test_embedding', [$this, 'ajax_test_embedding']);
         add_action('wp_ajax_wpvdb_get_embedding_content', [$this, 'ajax_get_embedding_content']);
+        add_action('wp_ajax_wpvdb_automattic_connect', [$this, 'ajax_automattic_connect']);
+        
+        // Vector index operation handlers
+        add_action('wp_ajax_wpvdb_create_vector_index', [$this, 'ajax_create_vector_index']);
+        add_action('wp_ajax_wpvdb_optimize_vector_index', [$this, 'ajax_optimize_vector_index']);
+        add_action('wp_ajax_wpvdb_recreate_vector_index', [$this, 'ajax_recreate_vector_index']);
+        
+        // Show admin notices
+        add_action('admin_notices', [$this, 'database_compatibility_notice']);
+        add_action('admin_notices', [$this, 'admin_notices']);
+        
+        // Handle admin actions
+        add_action('admin_init', [$this, 'handle_admin_actions']);
         
         // Add post meta boxes
         add_action('add_meta_boxes', [$this, 'register_meta_boxes']);
@@ -618,6 +623,36 @@ class Admin {
         // Render tab content
         $tab_file = WPVDB_PLUGIN_DIR . 'admin/views/' . $tab . '.php';
         if (file_exists($tab_file)) {
+            // For status page, ensure scripts are loaded
+            if ($tab === 'status') {
+                // Ensure admin script is enqueued
+                if (!wp_script_is('wpvdb-admin', 'enqueued')) {
+                    error_log('WPVDB: Forcing admin script enqueue for status page');
+                    
+                    wp_enqueue_script(
+                        'wpvdb-admin',
+                        WPVDB_PLUGIN_URL . 'assets/js/admin.js',
+                        ['jquery'],
+                        WPVDB_VERSION . '-' . time(), // Add time to avoid caching issues
+                        true
+                    );
+                    
+                    // Localize script with fresh nonce
+                    wp_localize_script('wpvdb-admin', 'wpvdb', array(
+                        'ajaxUrl' => admin_url('admin-ajax.php'),
+                        'nonce' => wp_create_nonce('wpvdb-admin'),
+                        'version' => WPVDB_VERSION,
+                        'i18n' => array(
+                            'confirm_provider_change' => __('This will delete all existing embeddings and activate the new provider. Are you sure you want to continue?', 'wpvdb'),
+                            'confirm_cancel_change' => __('This will cancel the pending provider change. Are you sure?', 'wpvdb'),
+                        )
+                    ));
+                    
+                    // Print a special variable for debugging
+                    echo "<script>var wpvdb_debug_loaded_directly = true;</script>\n";
+                }
+            }
+            
             include $tab_file;
         } else {
             echo '<div class="notice notice-error"><p>';
@@ -660,15 +695,25 @@ class Admin {
     }
     
     /**
-     * Enqueue assets for the admin screens
+     * Enqueue admin scripts and styles
+     *
+     * @param string $hook The current admin page hook
      */
     public function enqueue_admin_assets($hook) {
-        $admin_pages = ['toplevel_page_wpvdb-dashboard', 'wpvdb_page_wpvdb-embeddings', 'wpvdb_page_wpvdb-settings', 'wpvdb_page_wpvdb-status'];
+        // More flexible approach - check if the hook contains 'wpvdb' or is a post edit screen
+        $is_wpvdb_page = (strpos($hook, 'wpvdb') !== false || in_array($hook, ['toplevel_page_wpvdb-dashboard']));
         
-        // Only load our assets on our admin pages
-        if (!in_array($hook, $admin_pages)) {
+        // Debug - log the current hook
+        error_log('WPVDB: Current admin page hook: ' . $hook);
+        error_log('WPVDB: Is wpvdb page? ' . ($is_wpvdb_page ? 'YES' : 'NO'));
+        
+        // Only load our assets on our admin pages or post edit screens
+        if (!$is_wpvdb_page && $hook !== 'post.php' && $hook !== 'post-new.php') {
+            error_log('WPVDB: Not loading assets for hook: ' . $hook);
             return;
         }
+        
+        error_log('WPVDB: Loading assets for hook: ' . $hook);
         
         // Core WordPress admin styles are already loaded
         
@@ -689,23 +734,25 @@ class Admin {
             true
         );
         
-        // Additional scripts for specific pages
-        if ($hook === 'wpvdb_page_wpvdb-embeddings') {
-            // Embeddings page specific script
-            wp_enqueue_script(
-                'wpvdb-embeddings',
-                WPVDB_PLUGIN_URL . 'assets/js/embeddings.js',
-                ['jquery', 'wpvdb-admin'],
-                WPVDB_VERSION,
-                true
-            );
-        }
-        
-        // Common data for admin scripts
+        // Common data for admin scripts with added vector index translations
         wp_localize_script('wpvdb-admin', 'wpvdb', array(
             'ajaxUrl' => admin_url('admin-ajax.php'),
             'nonce' => wp_create_nonce('wpvdb-admin'),
             'version' => WPVDB_VERSION,
+            'i18n' => array(
+                'confirm_delete' => __('Are you sure you want to delete this embedding?', 'wpvdb'),
+                'confirm_recreate_table' => __('This will delete and recreate the embeddings table. All existing embeddings will be lost. Are you sure you want to continue?', 'wpvdb'),
+                'error_message' => __('An error occurred. Please try again.', 'wpvdb'),
+                'success_message' => __('Operation completed successfully.', 'wpvdb'),
+                'confirm_provider_change' => __('This will delete all existing embeddings and activate the new provider. Are you sure you want to continue?', 'wpvdb'),
+                'confirm_cancel_change' => __('This will cancel the pending provider change. Are you sure?', 'wpvdb'),
+                'no_posts_selected' => __('Please select at least one post to process.', 'wpvdb'),
+                'processing_complete' => __('Processing complete.', 'wpvdb'),
+                'confirm_reindex_all' => __('This will delete and regenerate all embeddings. Are you sure you want to continue?', 'wpvdb'),
+                'confirm_create_vector_index' => __('This will create a vector index for your embeddings table. Are you sure?', 'wpvdb'),
+                'confirm_optimize_vector_index' => __('This will optimize your vector index. It may take a moment. Continue?', 'wpvdb'),
+                'confirm_recreate_vector_index' => __('This will recreate the vector index. All existing records will be kept, but search might be temporarily slower. Are you sure?', 'wpvdb'),
+            ),
             'strings' => array(
                 'confirmDelete' => __('Are you sure you want to delete this embedding?', 'wpvdb'),
                 'processing' => __('Processing...', 'wpvdb'),
@@ -713,6 +760,25 @@ class Admin {
                 'error' => __('Error:', 'wpvdb'),
             )
         ));
+        
+        // Specific page scripts
+        if ($hook === 'wpvdb_page_wpvdb-embeddings') {
+            // Enqueue dataTables for the embeddings page
+            wp_enqueue_script(
+                'wpvdb-datatables',
+                WPVDB_PLUGIN_URL . 'assets/js/datatables.min.js',
+                ['jquery'],
+                '1.10.21',
+                true
+            );
+            
+            wp_enqueue_style(
+                'wpvdb-datatables',
+                WPVDB_PLUGIN_URL . 'assets/css/datatables.min.css',
+                [],
+                '1.10.21'
+            );
+        }
     }
     
     /**
@@ -749,15 +815,46 @@ class Admin {
      * Ajax handler for confirming provider/model changes
      */
     public function ajax_confirm_provider_change() {
-        check_ajax_referer('wpvdb-admin', 'nonce');
-        
-        if (!current_user_can('manage_options')) {
-            wp_send_json_error(['message' => __('Permission denied', 'wpvdb')]);
-        }
-        
-        // Debug - log the request
+        // Debug - log all the request data first
         error_log('WPVDB: Confirm provider change request received');
         error_log('WPVDB: POST data: ' . print_r($_POST, true));
+        
+        // Check nonce - be slightly more flexible in how we accept it
+        $has_valid_nonce = false;
+        
+        if (isset($_POST['nonce'])) {
+            $has_valid_nonce = wp_verify_nonce($_POST['nonce'], 'wpvdb-admin');
+            error_log('WPVDB: Nonce verification result: ' . ($has_valid_nonce ? 'valid' : 'invalid'));
+        } else {
+            error_log('WPVDB: No nonce provided in request');
+        }
+        
+        // Don't immediately exit if nonce fails - log more information first
+        if (!$has_valid_nonce) {
+            error_log('WPVDB: Invalid nonce - security check failed');
+            // For added security, verify user capabilities regardless of nonce
+            if (!current_user_can('manage_options')) {
+                wp_send_json_error(['message' => __('Permission denied - invalid security token (nonce)', 'wpvdb')]);
+                return;
+            } else {
+                // User has admin capability but nonce failed - provide detailed message
+                wp_send_json_error([
+                    'message' => __('Security check failed. Please refresh the page and try again.', 'wpvdb'),
+                    'debug' => [
+                        'error' => 'invalid_nonce',
+                        'has_nonce' => isset($_POST['nonce']),
+                        'nonce_value_provided' => isset($_POST['nonce']) ? substr($_POST['nonce'], 0, 3) . '...' : 'none'
+                    ]
+                ]);
+                return;
+            }
+        }
+        
+        // Security check passed, now verify user capability
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(['message' => __('Permission denied - insufficient privileges', 'wpvdb')]);
+            return;
+        }
         
         // Check for cancel parameter in various formats
         $cancel = false;
@@ -1855,5 +1952,161 @@ class Admin {
         );
         
         return $redirect_to;
+    }
+    
+    /**
+     * AJAX handler for creating a vector index
+     */
+    public function ajax_create_vector_index() {
+        // Verify nonce
+        if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'wpvdb_admin_nonce')) {
+            wp_send_json_error([
+                'message' => __('Security verification failed.', 'wpvdb')
+            ]);
+            return;
+        }
+        
+        // Check capabilities
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error([
+                'message' => __('You do not have permission to perform this action.', 'wpvdb')
+            ]);
+            return;
+        }
+        
+        // Get database instance from global variable
+        global $wpvdb_plugin;
+        $database = $wpvdb_plugin->get_database();
+        
+        // Check if database supports vector indexes
+        if ($database->get_db_type() !== 'mariadb' || !$database->has_native_vector_support()) {
+            wp_send_json_error([
+                'message' => __('Your database does not support vector indexes. MariaDB 11.7+ is required.', 'wpvdb')
+            ]);
+            return;
+        }
+        
+        // Get vector index settings
+        $m_value = 16; // Default M value for HNSW index
+        $distance_type = 'cosine'; // Default distance type
+        
+        // Create the vector index
+        $result = $database->add_vector_index($m_value, $distance_type);
+        
+        if ($result) {
+            wp_send_json_success([
+                'message' => __('Vector index created successfully.', 'wpvdb')
+            ]);
+        } else {
+            wp_send_json_error([
+                'message' => __('Failed to create vector index. Check server logs for details.', 'wpvdb')
+            ]);
+        }
+    }
+    
+    /**
+     * AJAX handler for optimizing a vector index
+     */
+    public function ajax_optimize_vector_index() {
+        // Verify nonce
+        if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'wpvdb_admin_nonce')) {
+            wp_send_json_error([
+                'message' => __('Security verification failed.', 'wpvdb')
+            ]);
+            return;
+        }
+        
+        // Check capabilities
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error([
+                'message' => __('You do not have permission to perform this action.', 'wpvdb')
+            ]);
+            return;
+        }
+        
+        // Get database instance from global variable
+        global $wpvdb_plugin;
+        $database = $wpvdb_plugin->get_database();
+        
+        // Optimize the vector performance
+        $result = $database->optimize_vector_performance();
+        
+        if ($result) {
+            wp_send_json_success([
+                'message' => __('Vector index optimized successfully.', 'wpvdb')
+            ]);
+        } else {
+            wp_send_json_error([
+                'message' => __('Failed to optimize vector index. Check server logs for details.', 'wpvdb')
+            ]);
+        }
+    }
+    
+    /**
+     * AJAX handler for recreating a vector index
+     */
+    public function ajax_recreate_vector_index() {
+        // Verify nonce
+        if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'wpvdb_admin_nonce')) {
+            wp_send_json_error([
+                'message' => __('Security verification failed.', 'wpvdb')
+            ]);
+            return;
+        }
+        
+        // Check capabilities
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error([
+                'message' => __('You do not have permission to perform this action.', 'wpvdb')
+            ]);
+            return;
+        }
+        
+        // Get database instance from global variable
+        global $wpvdb_plugin;
+        $database = $wpvdb_plugin->get_database();
+        
+        // Check if database supports vector indexes
+        if ($database->get_db_type() !== 'mariadb' || !$database->has_native_vector_support()) {
+            wp_send_json_error([
+                'message' => __('Your database does not support vector indexes. MariaDB 11.7+ is required.', 'wpvdb')
+            ]);
+            return;
+        }
+        
+        global $wpdb;
+        $table_name = $wpdb->prefix . 'wpvdb_embeddings';
+        
+        // First, drop the existing index if it exists
+        try {
+            $index_exists = $wpdb->get_var("SHOW INDEX FROM $table_name WHERE Key_name = 'embedding_idx'") !== null;
+            
+            if ($index_exists) {
+                $wpdb->query("ALTER TABLE $table_name DROP INDEX embedding_idx");
+            }
+            
+            // Create a new vector index
+            $m_value = 16; // Default M value for HNSW index
+            $distance_type = 'cosine'; // Default distance type
+            
+            $result = $database->add_vector_index($m_value, $distance_type);
+            
+            // Also optimize performance
+            if ($result) {
+                $database->optimize_vector_performance();
+                
+                wp_send_json_success([
+                    'message' => __('Vector index recreated and optimized successfully.', 'wpvdb')
+                ]);
+            } else {
+                wp_send_json_error([
+                    'message' => __('Failed to recreate vector index. Check server logs for details.', 'wpvdb')
+                ]);
+            }
+        } catch (\Exception $e) {
+            wp_send_json_error([
+                'message' => __('Error recreating vector index: ', 'wpvdb') . $e->getMessage()
+            ]);
+        }
     }
 } 

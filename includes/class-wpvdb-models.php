@@ -49,6 +49,14 @@ class Models {
                     'dimensions' => 1024,
                     'provider' => 'automattic'
                 ]
+            ],
+            'specter' => [
+                'specter2' => [
+                    'name' => 'specter2',
+                    'label' => 'SPECTER2',
+                    'dimensions' => 768,
+                    'provider' => 'specter'
+                ]
             ]
         ];
         
@@ -91,6 +99,8 @@ class Models {
                 return 'text-embedding-3-small';
             case 'automattic':
                 return 'a8cai-embeddings-small-1';
+            case 'specter':
+                return 'specter2';
             default:
                 // For custom providers, return the first available model
                 $provider_models = self::get_provider_models($provider);
