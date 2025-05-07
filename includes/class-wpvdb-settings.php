@@ -149,6 +149,56 @@ class Settings {
     }
     
     /**
+     * Get default model for a specific provider
+     *
+     * @param string $provider Provider name (openai, automattic, etc.)
+     * @return string Model name or empty string if not found
+     */
+    public static function get_model_for_provider($provider) {
+        $settings = get_option('wpvdb_settings', []);
+        
+        if (!is_array($settings)) {
+            return Models::get_default_model_for_provider($provider);
+        }
+        
+        // Check in the provider-specific settings
+        if (isset($settings[$provider]['default_model']) && !empty($settings[$provider]['default_model'])) {
+            return $settings[$provider]['default_model'];
+        }
+        
+        // Otherwise get default from Models registry
+        return Models::get_default_model_for_provider($provider);
+    }
+
+    /**
+     * Get active provider from settings
+     * 
+     * @return string Active provider name
+     */
+    public static function get_active_provider() {
+        $settings = get_option('wpvdb_settings', []);
+        return isset($settings['active_provider']) && !empty($settings['active_provider']) 
+            ? $settings['active_provider'] 
+            : 'openai';
+    }
+
+    /**
+     * Get active model from settings
+     * 
+     * @return string Active model name
+     */
+    public static function get_active_model() {
+        $settings = get_option('wpvdb_settings', []);
+        
+        if (isset($settings['active_model']) && !empty($settings['active_model'])) {
+            return $settings['active_model'];
+        }
+        
+        $active_provider = self::get_active_provider();
+        return self::get_model_for_provider($active_provider);
+    }
+    
+    /**
      * Get chunk size setting
      */
     public static function get_chunk_size() {
@@ -193,5 +243,52 @@ class Settings {
         }
         
         return $batch_size;
+    }
+    
+    /**
+     * Check if there is a pending provider/model change
+     * 
+     * @return bool Whether there is a pending change
+     */
+    public static function has_pending_provider_change() {
+        // CRITICAL FIX: Get settings directly from database, bypassing cache
+        $settings = get_option('wpvdb_settings', []);
+        
+        // Debug log for troubleshooting
+        error_log('WPVDB CRITICAL: has_pending_provider_change check. Settings: ' . print_r($settings, true));
+        
+        if (!is_array($settings)) {
+            error_log('WPVDB CRITICAL: Invalid settings format - not an array');
+            return false;
+        }
+        
+        $has_pending = (!empty($settings['pending_provider']) || !empty($settings['pending_model']));
+        error_log('WPVDB CRITICAL: Has pending provider change: ' . ($has_pending ? 'YES' : 'NO'));
+        
+        return $has_pending;
+    }
+    
+    /**
+     * Get pending change details
+     * 
+     * @return array|false Pending change details or false if no pending change
+     */
+    public static function get_pending_change_details() {
+        $settings = get_option('wpvdb_settings', []);
+        
+        if (!is_array($settings)) {
+            return false;
+        }
+        
+        if (empty($settings['pending_provider']) && empty($settings['pending_model'])) {
+            return false;
+        }
+        
+        return [
+            'active_provider' => isset($settings['active_provider']) ? $settings['active_provider'] : '',
+            'active_model' => isset($settings['active_model']) ? $settings['active_model'] : '',
+            'pending_provider' => isset($settings['pending_provider']) ? $settings['pending_provider'] : '',
+            'pending_model' => isset($settings['pending_model']) ? $settings['pending_model'] : '',
+        ];
     }
 } 

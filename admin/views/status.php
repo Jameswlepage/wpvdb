@@ -50,18 +50,23 @@ if ($database->get_db_type() === 'mariadb' && $database->has_native_vector_suppo
     }
 }
 
-// Get current settings
+// Get provider change status - CRITICAL FIX: Force fresh data retrieval
+wp_cache_delete('wpvdb_settings', 'options');
 $settings = get_option('wpvdb_settings', []);
-if (!is_array($settings)) {
-    $settings = [];
-}
+$has_pending_change = \WPVDB\Settings::has_pending_provider_change();
+$pending_details = $has_pending_change ? \WPVDB\Settings::get_pending_change_details() : false;
 
-// Get provider change status
-$has_pending_change = !empty($settings['pending_provider']) && !empty($settings['pending_model']);
 $active_provider = isset($settings['active_provider']) ? $settings['active_provider'] : '';
 $active_model = isset($settings['active_model']) ? $settings['active_model'] : '';
-$pending_provider = isset($settings['pending_provider']) ? $settings['pending_provider'] : '';
-$pending_model = isset($settings['pending_model']) ? $settings['pending_model'] : '';
+$pending_provider = $pending_details ? $pending_details['pending_provider'] : '';
+$pending_model = $pending_details ? $pending_details['pending_model'] : '';
+
+// Debug output for settings status
+error_log('WPVDB STATUS PAGE: Current settings: ' . print_r($settings, true));
+error_log('WPVDB STATUS PAGE: Has pending change: ' . ($has_pending_change ? 'YES' : 'NO'));
+if ($pending_details) {
+    error_log('WPVDB STATUS PAGE: Pending details: ' . print_r($pending_details, true));
+}
 
 // Get system information 
 $system_info = [];
@@ -348,10 +353,23 @@ if (!array_key_exists($current_section, $sections)) {
                     <th><?php _e('Actions', 'wpvdb'); ?></th>
                     <td>
                         <div class="wpvdb-action-buttons">
-                            <button id="wpvdb-apply-provider-change" class="button button-primary">
+                            <!-- CRITICAL FIX: Use direct form submission instead of JavaScript -->
+                            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="display:inline-block;">
+                                <input type="hidden" name="action" value="wpvdb_apply_provider_change">
+                                <?php wp_nonce_field('wpvdb-admin'); ?>
+                                <input type="submit" id="wpvdb-apply-provider-change-direct" class="button button-primary" value="<?php esc_attr_e('Apply Change', 'wpvdb'); ?>" onclick="return confirm('This will delete all existing embeddings and activate the new provider. Are you sure you want to continue?');">
+                            </form>
+                            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="display:inline-block; margin-left:10px;">
+                                <input type="hidden" name="action" value="wpvdb_cancel_provider_change">
+                                <?php wp_nonce_field('wpvdb-admin'); ?>
+                                <input type="submit" id="wpvdb-cancel-provider-change-direct" class="button" value="<?php esc_attr_e('Cancel Change', 'wpvdb'); ?>" onclick="return confirm('Are you sure you want to cancel the pending provider change?');">
+                            </form>
+                            
+                            <!-- Keep the original buttons as backup -->
+                            <button id="wpvdb-apply-provider-change" class="button button-primary" style="display:none;">
                                 <?php _e('Apply Change', 'wpvdb'); ?>
                             </button>
-                            <button id="wpvdb-cancel-provider-change" class="button">
+                            <button id="wpvdb-cancel-provider-change" class="button" style="display:none;">
                                 <?php _e('Cancel Change', 'wpvdb'); ?>
                             </button>
                         </div>
@@ -445,10 +463,23 @@ if (!array_key_exists($current_section, $sections)) {
                 <p><strong><?php _e('To:', 'wpvdb'); ?></strong> <?php echo esc_html(ucfirst($pending_provider) . ' (' . $pending_model . ')'); ?></p>
             </div>
             <div class="wpvdb-action-buttons">
-                <button id="wpvdb-apply-provider-change-tool" class="button button-primary">
+                <!-- CRITICAL FIX: Use direct form submission instead of JavaScript -->
+                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="display:inline-block;">
+                    <input type="hidden" name="action" value="wpvdb_apply_provider_change">
+                    <?php wp_nonce_field('wpvdb-admin'); ?>
+                    <input type="submit" id="wpvdb-apply-provider-change-direct-tool" class="button button-primary" value="<?php esc_attr_e('Apply Change', 'wpvdb'); ?>" onclick="return confirm('This will delete all existing embeddings and activate the new provider. Are you sure you want to continue?');">
+                </form>
+                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" style="display:inline-block; margin-left:10px;">
+                    <input type="hidden" name="action" value="wpvdb_cancel_provider_change">
+                    <?php wp_nonce_field('wpvdb-admin'); ?>
+                    <input type="submit" id="wpvdb-cancel-provider-change-direct-tool" class="button" value="<?php esc_attr_e('Cancel Change', 'wpvdb'); ?>" onclick="return confirm('Are you sure you want to cancel the pending provider change?');">
+                </form>
+                
+                <!-- Keep the original buttons as backup -->
+                <button id="wpvdb-apply-provider-change-tool" class="button button-primary" style="display:none;">
                     <?php _e('Apply Change', 'wpvdb'); ?>
                 </button>
-                <button id="wpvdb-cancel-provider-change-tool" class="button">
+                <button id="wpvdb-cancel-provider-change-tool" class="button" style="display:none;">
                     <?php _e('Cancel Change', 'wpvdb'); ?>
                 </button>
             </div>
@@ -567,9 +598,9 @@ if (!array_key_exists($current_section, $sections)) {
                         <select id="wpvdb-test-provider" name="provider">
                             <?php 
                             $providers = \WPVDB\Providers::get_available_providers();
-                            foreach ($providers as $provider_id => $provider_name) {
+                            foreach ($providers as $provider_id => $provider_data) {
                                 $selected = ($provider_id === $active_provider) ? 'selected' : '';
-                                echo '<option value="' . esc_attr($provider_id) . '" ' . $selected . '>' . esc_html($provider_name) . '</option>';
+                                echo '<option value="' . esc_attr($provider_id) . '" ' . $selected . '>' . esc_html($provider_data['label']) . '</option>';
                             }
                             ?>
                         </select>
@@ -580,9 +611,15 @@ if (!array_key_exists($current_section, $sections)) {
                         <select id="wpvdb-test-model" name="model">
                             <?php 
                             $models = \WPVDB\Models::get_available_models();
-                            foreach ($models as $model_id => $model_name) {
-                                $selected = ($model_id === $active_model) ? 'selected' : '';
-                                echo '<option value="' . esc_attr($model_id) . '" ' . $selected . '>' . esc_html($model_name) . '</option>';
+                            // Models are organized by provider, so we need to iterate through each provider's models
+                            foreach ($models as $provider_id => $provider_models) {
+                                echo '<optgroup label="' . esc_attr(ucfirst($provider_id)) . '">';
+                                foreach ($provider_models as $model_id => $model_data) {
+                                    $selected = ($model_id === $active_model) ? 'selected' : '';
+                                    echo '<option value="' . esc_attr($model_id) . '" ' . $selected . ' data-provider="' . esc_attr($provider_id) . '">' 
+                                        . esc_html($model_data['label']) . '</option>';
+                                }
+                                echo '</optgroup>';
                             }
                             ?>
                         </select>
@@ -665,3 +702,364 @@ if (!array_key_exists($current_section, $sections)) {
     </div>
 </div>
 </div><!-- .wrap --> 
+
+<script type="text/javascript">
+jQuery(document).ready(function($) {
+    console.log('WPVDB CRITICAL FIX: Direct inline JavaScript loaded');
+    
+    // Check if the test embedding modal is already working
+    var testEmbeddingHandled = false;
+    var testButtonClicked = false;
+    
+    // CRITICAL FIX: Create a test function to check if event handlers already exist
+    function checkIfHandlersExist() {
+        // Set up a flag to track if the original handlers are working
+        $('#wpvdb-test-embedding-button').one('click', function() {
+            testButtonClicked = true;
+            console.log('WPVDB DEBUG: Original test embedding button handler detected');
+            
+            // Wait a short time to see if the modal shows up via the original handler
+            setTimeout(function() {
+                if ($('#wpvdb-test-embedding-modal').is(':visible')) {
+                    testEmbeddingHandled = true;
+                    console.log('WPVDB DEBUG: Original modal display code is working');
+                } else if (!testEmbeddingHandled) {
+                    console.log('WPVDB DEBUG: Original handlers not working, applying critical fix handlers');
+                    // The original handler didn't work, attach our handlers
+                    attachCriticalFixHandlers();
+                }
+            }, 100);
+        });
+        
+        // Trigger a test click and then immediately prevent the default action
+        var event = new MouseEvent('click', {
+            bubbles: true,
+            cancelable: true,
+            view: window
+        });
+        var handled = $('#wpvdb-test-embedding-button')[0].dispatchEvent(event);
+        if (handled) {
+            console.log('WPVDB DEBUG: Test click event was handled by an existing handler');
+            // Undo button click immediately to prevent modal from showing during test
+            $('#wpvdb-test-embedding-modal').css('display', 'none');
+        }
+        
+        // If no click was detected within a short time, attach our handlers
+        setTimeout(function() {
+            if (!testButtonClicked) {
+                console.log('WPVDB DEBUG: No existing handlers detected, applying critical fix handlers');
+                attachCriticalFixHandlers();
+            }
+        }, 200);
+    }
+    
+    // CRITICAL FIX: Function to attach our handlers only if needed
+    function attachCriticalFixHandlers() {
+        // Provider change buttons - for backward compatibility
+        if ($('#wpvdb-apply-provider-change').length > 0) {
+            $('#wpvdb-apply-provider-change, #wpvdb-apply-provider-change-notice, #wpvdb-apply-provider-change-tool').off('click').on('click', function(e) {
+                e.preventDefault();
+                e.stopPropagation(); // Prevent multiple handlers
+                console.log('WPVDB CRITICAL: Apply provider change button clicked directly');
+                
+                if (!confirm('This will delete all existing embeddings and activate the new provider. Are you sure you want to continue?')) {
+                    return;
+                }
+                
+                // Visual feedback for the user
+                $(this).addClass('updating-message').prop('disabled', true);
+                
+                // Make the AJAX request directly
+                $.ajax({
+                    url: ajaxurl, // WordPress global
+                    type: 'POST',
+                    data: {
+                        action: 'wpvdb_confirm_provider_change',
+                        nonce: '<?php echo wp_create_nonce('wpvdb-admin'); ?>',
+                        cancel: false
+                    },
+                    success: function(response) {
+                        console.log('WPVDB CRITICAL: Provider change response received', response);
+                        if (response.success) {
+                            alert('Provider change successful. Page will reload.');
+                            window.location.reload();
+                        } else {
+                            alert(response.data && response.data.message ? response.data.message : 'Error applying provider change');
+                            $('.button').removeClass('updating-message').prop('disabled', false);
+                        }
+                    },
+                    error: function(xhr, status, error) {
+                        console.error('WPVDB CRITICAL: AJAX error:', xhr.responseText);
+                        alert('Error applying provider change: ' + error);
+                        $('.button').removeClass('updating-message').prop('disabled', false);
+                    }
+                });
+            });
+            
+            $('#wpvdb-cancel-provider-change, #wpvdb-cancel-provider-change-notice, #wpvdb-cancel-provider-change-tool').off('click').on('click', function(e) {
+                e.preventDefault();
+                e.stopPropagation(); // Prevent multiple handlers
+                console.log('WPVDB CRITICAL: Cancel provider change button clicked directly');
+                
+                if (!confirm('Are you sure you want to cancel the pending provider change?')) {
+                    return;
+                }
+                
+                // Visual feedback for the user
+                $(this).addClass('updating-message').prop('disabled', true);
+                
+                // Make the AJAX request directly
+                $.ajax({
+                    url: ajaxurl, // WordPress global
+                    type: 'POST',
+                    data: {
+                        action: 'wpvdb_confirm_provider_change',
+                        nonce: '<?php echo wp_create_nonce('wpvdb-admin'); ?>',
+                        cancel: true
+                    },
+                    success: function(response) {
+                        console.log('WPVDB CRITICAL: Provider change cancel response received', response);
+                        if (response.success) {
+                            alert('Provider change cancelled. Page will reload.');
+                            window.location.reload();
+                        } else {
+                            alert(response.data && response.data.message ? response.data.message : 'Error cancelling provider change');
+                            $('.button').removeClass('updating-message').prop('disabled', false);
+                        }
+                    },
+                    error: function(xhr, status, error) {
+                        console.error('WPVDB CRITICAL: AJAX error:', xhr.responseText);
+                        alert('Error cancelling provider change: ' + error);
+                        $('.button').removeClass('updating-message').prop('disabled', false);
+                    }
+                });
+            });
+        }
+        
+        // Test embedding button
+        $('#wpvdb-test-embedding-button').off('click').on('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation(); // Prevent multiple handlers
+            console.log('WPVDB CRITICAL: Test embedding button clicked directly');
+            
+            // Show the modal
+            $('#wpvdb-test-embedding-modal').css('display', 'block');
+            $('#wpvdb-test-embedding-results').hide();
+            $('.wpvdb-status-message').empty();
+            $('.wpvdb-embedding-info').empty();
+        });
+        
+        // Modal close
+        $('.wpvdb-modal-close, .wpvdb-modal-cancel').off('click').on('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation(); // Prevent multiple handlers
+            console.log('WPVDB CRITICAL: Modal close clicked directly');
+            $('.wpvdb-modal').css('display', 'none');
+        });
+        
+        // Test embedding form submission
+        $('#wpvdb-test-embedding-form').off('submit').on('submit', function(e) {
+            e.preventDefault();
+            e.stopPropagation(); // Prevent multiple handlers
+            console.log('WPVDB CRITICAL: Test embedding form submitted directly');
+            
+            var provider = $('#wpvdb-test-provider').val();
+            var model = $('#wpvdb-test-model').val();
+            var text = $('#wpvdb-test-text').val();
+            
+            if (!text.trim()) {
+                alert('Please enter some text to embed.');
+                return;
+            }
+            
+            // Show loading state
+            $('.wpvdb-status-message').html('<div class="notice notice-info"><p>Generating embedding...</p></div>');
+            $('#wpvdb-test-embedding-results').show();
+            
+            // Make AJAX request directly
+            $.ajax({
+                url: ajaxurl, // WordPress global
+                type: 'POST',
+                data: {
+                    action: 'wpvdb_test_embedding',
+                    nonce: '<?php echo wp_create_nonce('wpvdb-admin'); ?>',
+                    provider: provider,
+                    model: model,
+                    text: text
+                },
+                success: function(response) {
+                    console.log('WPVDB CRITICAL: Test embedding response received', response);
+                    if (response.success) {
+                        $('.wpvdb-status-message').html('<div class="notice notice-success"><p>Embedding generated successfully!</p></div>');
+                        
+                        // Display embedding info
+                        var html = '<div class="wpvdb-embedding-details">';
+                        html += '<p><strong>Provider:</strong> ' + response.data.provider + '</p>';
+                        html += '<p><strong>Model:</strong> ' + response.data.model + '</p>';
+                        html += '<p><strong>Dimensions:</strong> ' + response.data.dimensions + '</p>';
+                        html += '<p><strong>Time:</strong> ' + response.data.time + ' seconds</p>';
+                        
+                        // Show a sample of the embedding vector
+                        if (response.data.embedding && response.data.embedding.length > 0) {
+                            var sampleSize = Math.min(10, response.data.embedding.length);
+                            var sample = response.data.embedding.slice(0, sampleSize);
+                            html += '<p><strong>Sample (first ' + sampleSize + ' values):</strong></p>';
+                            html += '<pre>' + JSON.stringify(sample) + '...</pre>';
+                        }
+                        
+                        html += '</div>';
+                        $('.wpvdb-embedding-info').html(html);
+                    } else {
+                        $('.wpvdb-status-message').html('<div class="notice notice-error"><p>Error: ' + (response.data ? response.data.message : 'Unknown error') + '</p></div>');
+                    }
+                },
+                error: function(xhr, status, error) {
+                    console.error('WPVDB CRITICAL: AJAX error:', xhr.responseText);
+                    $('.wpvdb-status-message').html('<div class="notice notice-error"><p>Error connecting to the server: ' + error + '</p></div>');
+                }
+            });
+        });
+        
+        // Filter model options based on selected provider
+        function filterModelOptions() {
+            var selectedProvider = $('#wpvdb-test-provider').val();
+            
+            $('#wpvdb-test-model option').each(function() {
+                var $option = $(this);
+                var provider = $option.data('provider');
+                
+                if (provider === selectedProvider) {
+                    $option.show();
+                } else {
+                    $option.hide();
+                }
+            });
+            
+            // Select first visible option if current selection is hidden
+            var $currentOption = $('#wpvdb-test-model option:selected');
+            if ($currentOption.css('display') === 'none') {
+                $('#wpvdb-test-model option[data-provider="' + selectedProvider + '"]:first').prop('selected', true);
+            }
+        }
+        
+        // Run filtering on load and when provider changes
+        filterModelOptions();
+        $('#wpvdb-test-provider').off('change').on('change', filterModelOptions);
+    }
+    
+    // Run check to see if we need to add our handlers
+    checkIfHandlersExist();
+
+    // Check if we came from a settings update
+    if (window.location.href.indexOf('settings-updated=1') > -1) {
+        console.log('WPVDB CRITICAL: Detected settings-updated parameter, forcing page reload in 1 second');
+        // Force reload once without the parameter to ensure fresh data
+        setTimeout(function() {
+            var cleanUrl = window.location.href.replace(/([&?])settings-updated=1(&|$)/, '$1');
+            cleanUrl = cleanUrl.replace(/([&?])cache-bust=[0-9]+(&|$)/, '$1');
+            // Remove trailing ? or & if present
+            cleanUrl = cleanUrl.replace(/[?&]$/, '');
+            window.location.href = cleanUrl;
+        }, 1000);
+    }
+});
+</script>
+
+<style type="text/css">
+/* Critical fix for modal styling */
+.wpvdb-modal {
+    display: none;
+    position: fixed;
+    z-index: 100000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    overflow: auto;
+    background-color: rgba(0,0,0,0.4);
+}
+
+.wpvdb-modal-content {
+    background-color: #fefefe;
+    margin: 10% auto;
+    padding: 20px;
+    border: 1px solid #ddd;
+    border-radius: 3px;
+    width: 60%;
+    max-width: 600px;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+}
+
+.wpvdb-modal-close {
+    color: #aaa;
+    float: right;
+    font-size: 28px;
+    font-weight: bold;
+    cursor: pointer;
+    line-height: 1;
+}
+
+.wpvdb-modal-close:hover,
+.wpvdb-modal-close:focus {
+    color: #000;
+    text-decoration: none;
+}
+
+.wpvdb-form-group {
+    margin-bottom: 15px;
+}
+
+.wpvdb-form-group label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: 600;
+}
+
+.wpvdb-form-group input[type="text"],
+.wpvdb-form-group select,
+.wpvdb-form-group textarea {
+    width: 100%;
+    padding: 8px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+}
+
+.wpvdb-form-actions {
+    margin-top: 20px;
+    text-align: right;
+}
+
+.wpvdb-form-actions button {
+    margin-left: 10px;
+}
+
+.wpvdb-embedding-details {
+    background-color: #f9f9f9;
+    padding: 10px 15px;
+    border: 1px solid #eee;
+    border-radius: 4px;
+    margin-top: 15px;
+}
+
+.wpvdb-embedding-details pre {
+    background-color: #f0f0f0;
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
+/* Fix for optgroups */
+optgroup {
+    font-weight: 600;
+    background-color: #f6f6f6;
+}
+
+/* Ensure buttons have visual feedback */
+.button.updating-message {
+    pointer-events: none;
+    opacity: 0.8;
+}
+</style> 

@@ -397,9 +397,6 @@ class Core {
      * @return string The active provider (openai or automattic)
      */
     private static function get_active_provider() {
-        $settings = get_option('wpvdb_settings', []);
-        return isset($settings['active_provider']) && !empty($settings['active_provider']) 
-            ? $settings['active_provider'] 
-            : 'openai';
+        return Settings::get_active_provider();
     }
 }

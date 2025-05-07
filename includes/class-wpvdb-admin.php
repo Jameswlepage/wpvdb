@@ -22,36 +22,37 @@ class Admin {
      * Initialize admin hooks.
      */
     public function init() {
-        // Register admin pages
-        add_action('admin_menu', [$this, 'register_admin_pages']);
-        
         // Register settings
         add_action('admin_init', [$this, 'register_settings']);
         
-        // Register admin assets
-        add_action('admin_enqueue_scripts', [$this, 'enqueue_admin_assets']);
+        // Register admin pages
+        add_action('admin_menu', [$this, 'register_admin_pages']);
         
-        // Register AJAX handlers
-        add_action('wp_ajax_wpvdb_validate_provider_change', [$this, 'ajax_validate_provider_change']);
+        // AJAX actions
         add_action('wp_ajax_wpvdb_confirm_provider_change', [$this, 'ajax_confirm_provider_change']);
+        add_action('wp_ajax_wpvdb_validate_provider_change', [$this, 'ajax_validate_provider_change']);
         add_action('wp_ajax_wpvdb_delete_embedding', [$this, 'ajax_delete_embedding']);
         add_action('wp_ajax_wpvdb_bulk_embed', [$this, 'ajax_bulk_embed']);
         add_action('wp_ajax_wpvdb_get_posts_for_indexing', [$this, 'ajax_get_posts_for_indexing']);
+        add_action('wp_ajax_wpvdb_automattic_connect', [$this, 'ajax_automattic_connect']);
         add_action('wp_ajax_wpvdb_reembed_post', [$this, 'ajax_reembed_post']);
         add_action('wp_ajax_wpvdb_test_embedding', [$this, 'ajax_test_embedding']);
         add_action('wp_ajax_wpvdb_get_embedding_content', [$this, 'ajax_get_embedding_content']);
-        add_action('wp_ajax_wpvdb_automattic_connect', [$this, 'ajax_automattic_connect']);
-        
-        // Vector index operation handlers
         add_action('wp_ajax_wpvdb_create_vector_index', [$this, 'ajax_create_vector_index']);
         add_action('wp_ajax_wpvdb_optimize_vector_index', [$this, 'ajax_optimize_vector_index']);
         add_action('wp_ajax_wpvdb_recreate_vector_index', [$this, 'ajax_recreate_vector_index']);
         
-        // Show admin notices
-        add_action('admin_notices', [$this, 'database_compatibility_notice']);
+        // CRITICAL FIX: Add direct admin-post handlers for form submissions
+        add_action('admin_post_wpvdb_apply_provider_change', [$this, 'handle_apply_provider_change']);
+        add_action('admin_post_wpvdb_cancel_provider_change', [$this, 'handle_cancel_provider_change']);
+        
+        // Admin notices
         add_action('admin_notices', [$this, 'admin_notices']);
         
-        // Handle admin actions
+        // Enqueue admin assets
+        add_action('admin_enqueue_scripts', [$this, 'enqueue_admin_assets']);
+        
+        // Admin actions
         add_action('admin_init', [$this, 'handle_admin_actions']);
         
         // Add post meta boxes
@@ -249,18 +250,11 @@ class Admin {
         if (isset($input['automattic']['api_key']) && !empty($input['automattic']['api_key'])) {
             error_log('WPVDB: Automattic API key received from connect page');
             
-            // Make sure we update both the new settings structure and the old individual options
-            update_option('wpvdb_automattic_api_key', sanitize_text_field($input['automattic']['api_key']));
-            
             // If this is a new connection, set Automattic as the active provider
             if (empty($current_settings['automattic']['api_key'])) {
                 $input['active_provider'] = 'automattic';
                 $input['active_model'] = $input['automattic']['default_model'] ?? 'a8cai-embeddings-small-1';
                 $input['provider'] = 'automattic';
-                
-                // Also update individual options
-                update_option('wpvdb_provider', 'automattic');
-                update_option('wpvdb_automattic_model', $input['active_model']);
             }
             
             // Set a transient to show a success message
@@ -280,6 +274,10 @@ class Admin {
                     'api_key' => isset($_POST['wpvdb_automattic_api_key']) ? sanitize_text_field($_POST['wpvdb_automattic_api_key']) : '',
                     'default_model' => isset($_POST['wpvdb_automattic_model']) ? sanitize_text_field($_POST['wpvdb_automattic_model']) : 'a8cai-embeddings-small-1',
                 ],
+                'specter' => [
+                    'default_model' => isset($_POST['wpvdb_specter_model']) ? sanitize_text_field($_POST['wpvdb_specter_model']) : 'specter2',
+                    'endpoint' => isset($_POST['wpvdb_specter_endpoint']) ? sanitize_text_field($_POST['wpvdb_specter_endpoint']) : \WPVDB\Providers::get_api_base('specter'),
+                ],
                 'chunk_size' => isset($_POST['wpvdb_chunk_size']) ? intval($_POST['wpvdb_chunk_size']) : 1000,
                 'chunk_overlap' => isset($_POST['wpvdb_chunk_overlap']) ? intval($_POST['wpvdb_chunk_overlap']) : 200,
                 'auto_embed' => isset($_POST['wpvdb_auto_embed']) ? 1 : 0,
@@ -294,6 +292,12 @@ class Admin {
             update_option('wpvdb_openai_model', $input['openai']['default_model']);
             update_option('wpvdb_automattic_api_key', $input['automattic']['api_key']);
             update_option('wpvdb_automattic_model', $input['automattic']['default_model']);
+            
+            // Update specter model if it exists
+            if (isset($_POST['wpvdb_specter_model'])) {
+                update_option('wpvdb_specter_model', sanitize_text_field($_POST['wpvdb_specter_model']));
+            }
+            
             update_option('wpvdb_chunk_size', $input['chunk_size']);
             update_option('wpvdb_chunk_overlap', $input['chunk_overlap']);
             update_option('wpvdb_auto_embed_post_types', $input['post_types']);
@@ -309,6 +313,9 @@ class Admin {
             }
             if (isset($_POST['wpvdb_automattic_endpoint'])) {
                 update_option('wpvdb_automattic_endpoint', sanitize_text_field($_POST['wpvdb_automattic_endpoint']));
+            }
+            if (isset($_POST['wpvdb_specter_endpoint'])) {
+                update_option('wpvdb_specter_endpoint', sanitize_text_field($_POST['wpvdb_specter_endpoint']));
             }
             if (isset($_POST['wpvdb_embedding_batch_size'])) {
                 update_option('wpvdb_embedding_batch_size', intval($_POST['wpvdb_embedding_batch_size']));
@@ -329,6 +336,9 @@ class Admin {
         if (!isset($input['automattic']) || !is_array($input['automattic'])) {
             $input['automattic'] = [];
         }
+        if (!isset($input['specter']) || !is_array($input['specter'])) {
+            $input['specter'] = [];
+        }
         
         // Make sure api_key and default_model at least exist (even if empty)
         if (!isset($input['openai']['api_key'])) {
@@ -342,6 +352,9 @@ class Admin {
         }
         if (!isset($input['automattic']['default_model'])) {
             $input['automattic']['default_model'] = 'a8cai-embeddings-small-1';
+        }
+        if (!isset($input['specter']['default_model'])) {
+            $input['specter']['default_model'] = 'specter2';
         }
         
         // Make sure post_types is always an array
@@ -409,9 +422,14 @@ class Admin {
         if (empty($current_settings['active_provider']) && empty($current_settings['active_model'])) {
             // This is the first-time setup - set active and pending to the current selection
             $input['active_provider'] = $input['provider'];
-            $input['active_model'] = $input['provider'] === 'openai' 
-                ? $input['openai']['default_model'] 
-                : $input['automattic']['default_model'];
+            
+            if ($input['provider'] === 'openai') {
+                $input['active_model'] = $input['openai']['default_model'];
+            } else if ($input['provider'] === 'automattic') {
+                $input['active_model'] = $input['automattic']['default_model'];
+            } else if ($input['provider'] === 'specter') {
+                $input['active_model'] = isset($_POST['wpvdb_specter_model']) ? sanitize_text_field($_POST['wpvdb_specter_model']) : 'specter2';
+            }
             
             // Clear pending values
             $input['pending_provider'] = '';
@@ -422,9 +440,15 @@ class Admin {
             $current_model = $current_settings['active_model'];
             
             $new_provider = $input['provider'];
-            $new_model = $new_provider === 'openai' 
-                ? $input['openai']['default_model'] 
-                : $input['automattic']['default_model'];
+            $new_model = '';
+            
+            if ($new_provider === 'openai') {
+                $new_model = $input['openai']['default_model'];
+            } else if ($new_provider === 'automattic') {
+                $new_model = $input['automattic']['default_model'];
+            } else if ($new_provider === 'specter') {
+                $new_model = isset($_POST['wpvdb_specter_model']) ? sanitize_text_field($_POST['wpvdb_specter_model']) : 'specter2';
+            }
             
             // If provider or model changed, set pending values
             if ($current_provider !== $new_provider || $current_model !== $new_model) {
@@ -436,8 +460,14 @@ class Admin {
                 $input['pending_provider'] = $new_provider;
                 $input['pending_model'] = $new_model;
                 
-                // Add admin notice about pending change
-                add_action('admin_notices', [$this, 'show_pending_change_notice']);
+                // Only show the admin notice on pages other than our plugin pages
+                $screen = function_exists('get_current_screen') ? get_current_screen() : null;
+                $is_plugin_page = $screen && (strpos($screen->id, 'wpvdb') !== false);
+                
+                if (!$is_plugin_page) {
+                    // Add admin notice about pending change
+                    add_action('admin_notices', [$this, 'show_pending_change_notice']);
+                }
             }
         }
         
@@ -448,78 +478,71 @@ class Admin {
      * Show admin notice about pending provider/model change
      */
     public function show_pending_change_notice() {
-        $settings = get_option('wpvdb_settings', []);
-        if (!is_array($settings)) {
-            $settings = [];
+        // Don't show this notice on our own plugin pages
+        $screen = function_exists('get_current_screen') ? get_current_screen() : null;
+        $is_plugin_page = $screen && (strpos($screen->id, 'wpvdb') !== false);
+        
+        if ($is_plugin_page) {
+            return;
         }
         
-        // Set default values for any needed keys
-        if (!isset($settings['active_provider'])) {
-            $settings['active_provider'] = '';
-        }
-        if (!isset($settings['active_model'])) {
-            $settings['active_model'] = '';
-        }
-        if (!isset($settings['pending_provider'])) {
-            $settings['pending_provider'] = '';
-        }
-        if (!isset($settings['pending_model'])) {
-            $settings['pending_model'] = '';
+        // Check if there's a pending change
+        if (!Settings::has_pending_provider_change()) {
+            return;
         }
         
-        if (!empty($settings['pending_provider']) || !empty($settings['pending_model'])) {
-            $active_provider_name = $settings['active_provider'] === 'openai' ? 'OpenAI' : 'Automattic AI';
-            $active_model = $settings['active_model'];
-            
-            $pending_provider_name = $settings['pending_provider'] === 'openai' ? 'OpenAI' : 'Automattic AI';
-            $pending_model = $settings['pending_model'];
-            
-            ?>
-            <div class="notice notice-warning">
-                <p>
-                    <strong><?php esc_html_e('Vector Database: Provider/Model Change Pending', 'wpvdb'); ?></strong>
-                </p>
-                <p>
-                    <?php printf(
-                        esc_html__('You\'ve requested to change the embedding provider/model from %1$s (%2$s) to %3$s (%4$s). This change requires re-indexing all content.', 'wpvdb'),
-                        '<strong>' . esc_html($active_provider_name) . '</strong>',
-                        '<code>' . esc_html($active_model) . '</code>',
-                        '<strong>' . esc_html($pending_provider_name) . '</strong>',
-                        '<code>' . esc_html($pending_model) . '</code>'
-                    ); ?>
-                </p>
-                <p>
-                    <a href="<?php echo esc_url(admin_url('admin.php?page=wpvdb-status')); ?>" class="button button-primary">
-                        <?php esc_html_e('Re-index Content Now', 'wpvdb'); ?>
-                    </a>
-                    <a href="#" class="button" id="wpvdb-cancel-provider-change">
-                        <?php esc_html_e('Cancel Change', 'wpvdb'); ?>
-                    </a>
-                </p>
-            </div>
-            <script>
-            jQuery(document).ready(function($) {
-                $('#wpvdb-cancel-provider-change').on('click', function(e) {
-                    e.preventDefault();
-                    $.ajax({
-                        url: ajaxurl,
-                        method: 'POST',
-                        data: {
-                            action: 'wpvdb_confirm_provider_change',
-                            nonce: '<?php echo wp_create_nonce('wpvdb-admin'); ?>',
-                            cancel: true
-                        },
-                        success: function(response) {
-                            if (response.success) {
-                                location.reload();
-                            }
+        // Get pending change details
+        $change = Settings::get_pending_change_details();
+        $active_provider_name = $change['active_provider'] === 'openai' ? 'OpenAI' : 'Automattic AI';
+        $active_model = $change['active_model'];
+        $pending_provider_name = $change['pending_provider'] === 'openai' ? 'OpenAI' : 'Automattic AI';
+        $pending_model = $change['pending_model'];
+        
+        ?>
+        <div class="notice notice-warning">
+            <p>
+                <strong><?php esc_html_e('Vector Database: Provider/Model Change Pending', 'wpvdb'); ?></strong>
+            </p>
+            <p>
+                <?php printf(
+                    esc_html__('You\'ve requested to change the embedding provider/model from %1$s (%2$s) to %3$s (%4$s). This change requires re-indexing all content.', 'wpvdb'),
+                    '<strong>' . esc_html($active_provider_name) . '</strong>',
+                    '<code>' . esc_html($active_model) . '</code>',
+                    '<strong>' . esc_html($pending_provider_name) . '</strong>',
+                    '<code>' . esc_html($pending_model) . '</code>'
+                ); ?>
+            </p>
+            <p>
+                <a href="<?php echo esc_url(admin_url('admin.php?page=wpvdb-status')); ?>" class="button button-primary">
+                    <?php esc_html_e('Re-index Content Now', 'wpvdb'); ?>
+                </a>
+                <a href="#" class="button" id="wpvdb-cancel-provider-change">
+                    <?php esc_html_e('Cancel Change', 'wpvdb'); ?>
+                </a>
+            </p>
+        </div>
+        <script>
+        jQuery(document).ready(function($) {
+            $('#wpvdb-cancel-provider-change').on('click', function(e) {
+                e.preventDefault();
+                $.ajax({
+                    url: ajaxurl,
+                    method: 'POST',
+                    data: {
+                        action: 'wpvdb_confirm_provider_change',
+                        nonce: '<?php echo wp_create_nonce('wpvdb-admin'); ?>',
+                        cancel: true
+                    },
+                    success: function(response) {
+                        if (response.success) {
+                            location.reload();
                         }
-                    });
+                    }
                 });
             });
-            </script>
-            <?php
-        }
+        });
+        </script>
+        <?php
     }
     
     /**
@@ -531,7 +554,67 @@ class Admin {
         // Ensure settings is an array
         if (!is_array($settings)) {
             $settings = [];
-            return;
+        }
+        
+        // Check if we need to migrate individual options to the structured settings array
+        $individual_options_exist = false;
+        $individual_options = [
+            'wpvdb_provider' => 'provider',
+            'wpvdb_openai_api_key' => 'openai.api_key',
+            'wpvdb_openai_model' => 'openai.default_model',
+            'wpvdb_automattic_api_key' => 'automattic.api_key',
+            'wpvdb_automattic_model' => 'automattic.default_model',
+            'wpvdb_chunk_size' => 'chunk_size',
+            'wpvdb_chunk_overlap' => 'chunk_overlap',
+            'wpvdb_auto_embed_post_types' => 'post_types'
+        ];
+        
+        foreach ($individual_options as $option_name => $settings_path) {
+            if (get_option($option_name) !== false) {
+                $individual_options_exist = true;
+                break;
+            }
+        }
+        
+        if ($individual_options_exist) {
+            // Migrate individual options to structured settings
+            foreach ($individual_options as $option_name => $settings_path) {
+                $option_value = get_option($option_name);
+                if ($option_value !== false) {
+                    // Parse the settings path (e.g., 'openai.api_key')
+                    $path_parts = explode('.', $settings_path);
+                    
+                    if (count($path_parts) === 1) {
+                        // Top-level setting
+                        $settings[$path_parts[0]] = $option_value;
+                    } else if (count($path_parts) === 2) {
+                        // Nested setting
+                        if (!isset($settings[$path_parts[0]]) || !is_array($settings[$path_parts[0]])) {
+                            $settings[$path_parts[0]] = [];
+                        }
+                        $settings[$path_parts[0]][$path_parts[1]] = $option_value;
+                    }
+                }
+            }
+            
+            // Set active provider based on provider setting
+            if (isset($settings['provider'])) {
+                $settings['active_provider'] = $settings['provider'];
+                
+                // Set active model based on provider
+                $provider = $settings['provider'];
+                if ($provider === 'openai' && isset($settings['openai']['default_model'])) {
+                    $settings['active_model'] = $settings['openai']['default_model'];
+                } else if ($provider === 'automattic' && isset($settings['automattic']['default_model'])) {
+                    $settings['active_model'] = $settings['automattic']['default_model'];
+                } else {
+                    // Use registry default
+                    $settings['active_model'] = Models::get_default_model_for_provider($provider);
+                }
+            }
+            
+            // Update the settings
+            update_option('wpvdb_settings', $settings);
         }
         
         if (isset($settings['api_key']) && !isset($settings['provider'])) {
@@ -544,7 +627,7 @@ class Admin {
                 ],
                 'automattic' => [
                     'api_key' => '',
-                    'default_model' => 'automattic-embeddings-001',
+                    'default_model' => 'a8cai-embeddings-small-1',
                 ],
                 'chunk_size' => isset($settings['chunk_size']) ? $settings['chunk_size'] : 1000,
                 'chunk_overlap' => isset($settings['chunk_overlap']) ? $settings['chunk_overlap'] : 200,
@@ -558,7 +641,7 @@ class Admin {
             ];
             
             update_option('wpvdb_settings', $new_settings);
-        } elseif (!isset($settings['active_provider'])) {
+        } else if (!isset($settings['active_provider'])) {
             // Ensure provider exists
             if (!isset($settings['provider'])) {
                 $settings['provider'] = 'openai';
@@ -574,15 +657,26 @@ class Admin {
             if (!isset($settings['automattic']) || !is_array($settings['automattic'])) {
                 $settings['automattic'] = [
                     'api_key' => '',
-                    'default_model' => 'automattic-embeddings-001'
+                    'default_model' => 'a8cai-embeddings-small-1'
                 ];
+            }
+            // Add any other providers
+            $available_providers = Providers::get_available_providers();
+            foreach ($available_providers as $provider_id => $provider_data) {
+                if ($provider_id !== 'openai' && $provider_id !== 'automattic' && 
+                    (!isset($settings[$provider_id]) || !is_array($settings[$provider_id]))) {
+                    $settings[$provider_id] = [
+                        'api_key' => '',
+                        'default_model' => Models::get_default_model_for_provider($provider_id)
+                    ];
+                }
             }
             
             // Add active provider fields if they don't exist yet
             $settings['active_provider'] = $settings['provider'];
             $settings['active_model'] = $settings['provider'] === 'openai' 
                 ? (isset($settings['openai']['default_model']) ? $settings['openai']['default_model'] : 'text-embedding-3-small') 
-                : (isset($settings['automattic']['default_model']) ? $settings['automattic']['default_model'] : 'automattic-embeddings-001');
+                : (isset($settings['automattic']['default_model']) ? $settings['automattic']['default_model'] : 'a8cai-embeddings-small-1');
             $settings['pending_provider'] = '';
             $settings['pending_model'] = '';
             
@@ -913,8 +1007,11 @@ class Admin {
             $settings['provider'] = $settings['active_provider'];
             if ($settings['active_provider'] === 'openai') {
                 $settings['openai']['default_model'] = $settings['active_model'];
-            } else {
+            } else if ($settings['active_provider'] === 'automattic') {
                 $settings['automattic']['default_model'] = $settings['active_model'];
+            } else if ($settings['active_provider'] === 'specter') {
+                // For specter, we don't need to update a provider-specific model setting
+                // as it's handled differently
             }
             
             // Clear pending provider/model
@@ -971,8 +1068,11 @@ class Admin {
                 // Update the provider-specific model setting
                 if ($settings['active_provider'] === 'openai') {
                     $settings['openai']['default_model'] = $settings['active_model'];
-                } else {
+                } else if ($settings['active_provider'] === 'automattic') {
                     $settings['automattic']['default_model'] = $settings['active_model'];
+                } else if ($settings['active_provider'] === 'specter') {
+                    // For specter, we don't need to update a provider-specific model setting
+                    // as it's handled differently
                 }
                 
                 $settings['pending_provider'] = '';
@@ -1608,7 +1708,8 @@ class Admin {
             'model' => $model,
             'dimensions' => count($embedding),
             'sample' => $sample_json,
-            'time' => $time_taken
+            'time' => $time_taken,
+            'embedding' => $embedding  // Add the full embedding array
         ]);
     }
     
@@ -2108,5 +2209,193 @@ class Admin {
                 'message' => __('Error recreating vector index: ', 'wpvdb') . $e->getMessage()
             ]);
         }
+    }
+    
+    /**
+     * CRITICAL FIX: Handle direct form submission to apply provider change
+     */
+    public function handle_apply_provider_change() {
+        // Verify nonce
+        check_admin_referer('wpvdb-admin');
+        
+        // Verify permissions
+        if (!current_user_can('manage_options')) {
+            wp_die('Permission denied.');
+        }
+        
+        // Get current settings
+        $settings = get_option('wpvdb_settings', []);
+        
+        // Debug log the original settings
+        error_log('WPVDB CRITICAL: handle_apply_provider_change called. Original settings: ' . print_r($settings, true));
+        
+        if (!isset($settings['pending_provider']) || !isset($settings['pending_model'])) {
+            wp_die('No pending provider change found.');
+        }
+        
+        // Get database instance
+        global $wpdb;
+        $table_name = $wpdb->prefix . 'wpvdb_embeddings';
+        
+        // Delete all existing embeddings
+        $embedding_count = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$table_name}");
+        $truncate_result = $wpdb->query("TRUNCATE TABLE {$table_name}");
+        if ($truncate_result === false) {
+            error_log('WPVDB CRITICAL: Error truncating embeddings table: ' . $wpdb->last_error);
+        } else {
+            error_log('WPVDB CRITICAL: Deleted ' . $embedding_count . ' embeddings');
+        }
+        
+        // Apply the pending change - store the original values for debug logs
+        $original_active_provider = isset($settings['active_provider']) ? $settings['active_provider'] : 'none';
+        $original_active_model = isset($settings['active_model']) ? $settings['active_model'] : 'none';
+        $original_provider = isset($settings['provider']) ? $settings['provider'] : 'none';
+        
+        // Set the new values
+        $pending_provider = $settings['pending_provider'];
+        $pending_model = $settings['pending_model'];
+        
+        $settings['active_provider'] = $pending_provider;
+        $settings['active_model'] = $pending_model;
+        $settings['provider'] = $pending_provider;
+        
+        // Update provider-specific model settings
+        if ($settings['active_provider'] === 'openai') {
+            $settings['openai']['default_model'] = $settings['active_model'];
+        } else if ($settings['active_provider'] === 'automattic') {
+            $settings['automattic']['default_model'] = $settings['active_model'];
+        } else if ($settings['active_provider'] === 'specter') {
+            // For specter we don't need to update any specific model setting
+        }
+        
+        // Clear pending provider/model
+        $settings['pending_provider'] = '';
+        $settings['pending_model'] = '';
+        
+        // Debug log before saving
+        error_log('WPVDB CRITICAL: About to update settings. New values:');
+        error_log('  - active_provider: ' . $original_active_provider . ' -> ' . $settings['active_provider']);
+        error_log('  - active_model: ' . $original_active_model . ' -> ' . $settings['active_model']);
+        error_log('  - provider: ' . $original_provider . ' -> ' . $settings['provider']);
+        error_log('  - pending_provider: ' . $pending_provider . ' -> ' . $settings['pending_provider']);
+        error_log('  - pending_model: ' . $pending_model . ' -> ' . $settings['pending_model']);
+        
+        // Save settings - FORCE autoload to true to ensure the option is loaded on every page
+        $update_result = update_option('wpvdb_settings', $settings, true);
+        
+        // Debug log the update result
+        error_log('WPVDB CRITICAL: update_option result: ' . ($update_result ? 'SUCCESS' : 'FAILED'));
+        
+        // Double-check that settings were saved correctly
+        $updated_settings = get_option('wpvdb_settings', []);
+        error_log('WPVDB CRITICAL: Re-fetched settings after update: ' . print_r($updated_settings, true));
+        
+        // Delete any transients that might be caching the settings
+        delete_transient('wpvdb_settings');
+        
+        // Clear WordPress object cache for this option
+        wp_cache_delete('wpvdb_settings', 'options');
+        
+        // Set success message
+        add_settings_error(
+            'wpvdb_settings',
+            'provider_change_applied',
+            sprintf(
+                __('Provider changed successfully. %d embeddings have been deleted. Please re-index your content.', 'wpvdb'),
+                $embedding_count
+            ),
+            'success'
+        );
+        set_transient('settings_errors', get_settings_errors(), 30);
+        
+        // CRITICAL FIX: Force flush of all relevant caches
+        wp_cache_flush();
+        
+        // Redirect back to status page with forceful cache-busting parameters
+        $redirect_url = add_query_arg([
+            'page' => 'wpvdb-status',
+            'settings-updated' => '1',
+            'cache-bust' => time() // Add a timestamp to bust any caching
+        ], admin_url('admin.php'));
+        
+        error_log('WPVDB CRITICAL: Redirecting to: ' . $redirect_url);
+        wp_redirect($redirect_url);
+        exit;
+    }
+    
+    /**
+     * CRITICAL FIX: Handle direct form submission to cancel provider change
+     */
+    public function handle_cancel_provider_change() {
+        // Verify nonce
+        check_admin_referer('wpvdb-admin');
+        
+        // Verify permissions
+        if (!current_user_can('manage_options')) {
+            wp_die('Permission denied.');
+        }
+        
+        // Get current settings
+        $settings = get_option('wpvdb_settings', []);
+        
+        // Debug log the original settings
+        error_log('WPVDB CRITICAL: handle_cancel_provider_change called. Original settings: ' . print_r($settings, true));
+        
+        // Store original values for debug logs
+        $original_pending_provider = isset($settings['pending_provider']) ? $settings['pending_provider'] : 'none';
+        $original_pending_model = isset($settings['pending_model']) ? $settings['pending_model'] : 'none';
+        $original_provider = isset($settings['provider']) ? $settings['provider'] : 'none';
+        
+        // Updated provider setting to match active provider
+        $settings['provider'] = isset($settings['active_provider']) ? $settings['active_provider'] : '';
+        
+        // Clear pending provider/model
+        $settings['pending_provider'] = '';
+        $settings['pending_model'] = '';
+        
+        // Debug log before saving
+        error_log('WPVDB CRITICAL: About to update settings. Changes:');
+        error_log('  - pending_provider: ' . $original_pending_provider . ' -> ' . $settings['pending_provider']);
+        error_log('  - pending_model: ' . $original_pending_model . ' -> ' . $settings['pending_model']);
+        error_log('  - provider: ' . $original_provider . ' -> ' . $settings['provider']);
+        
+        // Save settings with forced autoload
+        $update_result = update_option('wpvdb_settings', $settings, true);
+        
+        // Debug log the update result
+        error_log('WPVDB CRITICAL: update_option result: ' . ($update_result ? 'SUCCESS' : 'FAILED'));
+        
+        // Double-check that settings were saved correctly
+        $updated_settings = get_option('wpvdb_settings', []);
+        error_log('WPVDB CRITICAL: Re-fetched settings after update: ' . print_r($updated_settings, true));
+        
+        // Delete any transients that might be caching the settings
+        delete_transient('wpvdb_settings');
+        
+        // Clear WordPress object cache for this option
+        wp_cache_delete('wpvdb_settings', 'options');
+        
+        // Set success message
+        add_settings_error(
+            'wpvdb_settings',
+            'provider_change_cancelled',
+            __('Provider change cancelled.', 'wpvdb'),
+            'success'
+        );
+        set_transient('settings_errors', get_settings_errors(), 30);
+        
+        // CRITICAL FIX: Force flush of all relevant caches
+        wp_cache_flush();
+        
+        // Redirect back to status page with forceful cache-busting parameters
+        $redirect_url = add_query_arg([
+            'page' => 'wpvdb-status',
+            'settings-updated' => '1',
+            'cache-bust' => time() // Add a timestamp to bust any caching
+        ], admin_url('admin.php'));
+        
+        error_log('WPVDB CRITICAL: Redirecting to: ' . $redirect_url);
+        wp_redirect($redirect_url);
+        exit;
     }
 } 

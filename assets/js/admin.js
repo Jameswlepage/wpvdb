@@ -116,15 +116,11 @@ jQuery(document).ready(function($) {
         // Get current section from URL or set default
         var currentSection = new URLSearchParams(window.location.search).get('section') || 'api';
         
-        // No longer need to create tabs since they're now server-side
-        
         // Add click handler for section tabs
         $('.wpvdb-section-nav a').on('click', function(e) {
             e.preventDefault();
             window.location.href = $(this).attr('href');
         });
-        
-        // No longer need to manually update visibility since it's handled server-side
         
         // Provider Change Handling - this runs on the settings page
         var currentProvider = $('#wpvdb_current_provider').val();
@@ -219,7 +215,7 @@ jQuery(document).ready(function($) {
         // CRITICAL FIX: Direct document-level handler as a fallback
         console.log('%c WPVDB DEBUG: Adding document-level click handler for provider change buttons', 'background: #E91E63; color: white; font-size: 14px; padding: 5px;');
         
-        $(document).on('click', 'button[id^="wpvdb-apply-provider-change"]', function(e) {
+        $(document).on('click', '[id^="wpvdb-apply-provider-change"]', function(e) {
             e.preventDefault();
             console.log('%c WPVDB CRITICAL: Document-level apply provider change button handler triggered', 'background: #E91E63; color: white; font-size: 16px; padding: 5px;');
             console.log('%c WPVDB CRITICAL: Button ID:', 'background: #E91E63; color: white; font-size: 16px; padding: 5px;', $(this).attr('id'));
@@ -280,7 +276,7 @@ jQuery(document).ready(function($) {
                             }
                             
                             alert(errorMsg);
-                            $('button[id^="wpvdb-apply-provider-change"]').removeClass('updating-message').prop('disabled', false);
+                            $('[id^="wpvdb-apply-provider-change"]').removeClass('updating-message').prop('disabled', false);
                         }
                     },
                     error: function(xhr, status, error) {
@@ -305,10 +301,125 @@ jQuery(document).ready(function($) {
                         }
                         
                         alert(errorMessage);
-                        $('button[id^="wpvdb-apply-provider-change"]').removeClass('updating-message').prop('disabled', false);
+                        $('[id^="wpvdb-apply-provider-change"]').removeClass('updating-message').prop('disabled', false);
                     }
                 });
             }
+        });
+        
+        // Test Embedding Button and Modal
+        $('#wpvdb-test-embedding-button').on('click', function() {
+            console.log('WPVDB: Test embedding button clicked');
+            $('#wpvdb-test-embedding-modal').css('display', 'block');
+            $('#wpvdb-test-embedding-results').hide();
+            $('.wpvdb-status-message').empty();
+            $('.wpvdb-embedding-info').empty();
+            
+            // Sync provider and model on initial load
+            syncProviderAndModel();
+        });
+        
+        // Function to sync provider and model selections
+        function syncProviderAndModel() {
+            var selectedProvider = $('#wpvdb-test-provider').val();
+            
+            // Hide all model options that don't match the selected provider
+            $('#wpvdb-test-model option').each(function() {
+                var optionProvider = $(this).data('provider');
+                if (optionProvider !== selectedProvider) {
+                    $(this).hide();
+                } else {
+                    $(this).show();
+                }
+            });
+            
+            // If the currently selected model doesn't match the provider, select the first available model
+            var currentModel = $('#wpvdb-test-model').val();
+            var currentModelProvider = $('#wpvdb-test-model option[value="' + currentModel + '"]').data('provider');
+            
+            if (currentModelProvider !== selectedProvider) {
+                // Select the first visible option
+                var firstVisibleOption = $('#wpvdb-test-model option[data-provider="' + selectedProvider + '"]:first');
+                if (firstVisibleOption.length) {
+                    $('#wpvdb-test-model').val(firstVisibleOption.val());
+                }
+            }
+        }
+        
+        // When provider changes, update available models
+        $('#wpvdb-test-provider').on('change', function() {
+            syncProviderAndModel();
+        });
+        
+        // Close modal when clicking the X or Cancel button
+        $('.wpvdb-modal-close, .wpvdb-modal-cancel').on('click', function() {
+            $('.wpvdb-modal').css('display', 'none');
+        });
+        
+        // Handle test embedding form submission
+        $('#wpvdb-test-embedding-form').on('submit', function(e) {
+            e.preventDefault();
+            
+            var provider = $('#wpvdb-test-provider').val();
+            var model = $('#wpvdb-test-model').val();
+            var text = $('#wpvdb-test-text').val();
+            
+            if (!text.trim()) {
+                alert('Please enter some text to embed.');
+                return;
+            }
+            
+            // Show loading state
+            $('.wpvdb-status-message').html('<div class="notice notice-info"><p>Generating embedding...</p></div>');
+            $('#wpvdb-test-embedding-results').show();
+            
+            // Make AJAX request
+            $.ajax({
+                url: wpvdb.ajaxUrl,
+                type: 'POST',
+                data: {
+                    action: 'wpvdb_test_embedding',
+                    nonce: wpvdb.nonce,
+                    provider: provider,
+                    model: model,
+                    text: text
+                },
+                success: function(response) {
+                    if (response.success) {
+                        $('.wpvdb-status-message').html('<div class="notice notice-success"><p>Embedding generated successfully!</p></div>');
+                        
+                        // Display embedding info
+                        var html = '<div class="wpvdb-embedding-details">';
+                        html += '<p><strong>Provider:</strong> ' + response.data.provider + '</p>';
+                        html += '<p><strong>Model:</strong> ' + response.data.model + '</p>';
+                        html += '<p><strong>Dimensions:</strong> ' + response.data.dimensions + '</p>';
+                        html += '<p><strong>Time:</strong> ' + response.data.time + ' seconds</p>';
+                        
+                        // Show a sample of the embedding vector
+                        if (response.data.embedding && response.data.embedding.length > 0) {
+                            var sampleSize = Math.min(10, response.data.embedding.length);
+                            var sample = response.data.embedding.slice(0, sampleSize);
+                            html += '<p><strong>Sample (first ' + sampleSize + ' values):</strong></p>';
+                            html += '<pre>' + JSON.stringify(sample) + '...</pre>';
+                        }
+                        
+                        html += '</div>';
+                        $('.wpvdb-embedding-info').html(html);
+                    } else {
+                        $('.wpvdb-status-message').html('<div class="notice notice-error"><p>Error: ' + (response.data ? response.data.message : 'Unknown error') + '</p></div>');
+                    }
+                },
+                error: function() {
+                    $('.wpvdb-status-message').html('<div class="notice notice-error"><p>Error connecting to the server. Please try again.</p></div>');
+                }
+            });
+        });
+        
+        // Toggle debug info
+        $('#wpvdb-toggle-debug-info').on('click', function() {
+            $('#wpvdb-debug-info').toggle();
+            var text = $('#wpvdb-debug-info').is(':visible') ? 'Hide Debug Info' : 'Show Debug Info';
+            $(this).text(text);
         });
         
         // Attach provider change handlers to all button instances across all sections
@@ -323,8 +434,8 @@ jQuery(document).ready(function($) {
             console.log('%c WPVDB DEBUG: wpvdb.nonce:', 'background: #f0f0f0; color: #333; font-size: 14px; padding: 5px;', wpvdb ? wpvdb.nonce : 'undefined');
             
             // Check if buttons exist
-            var applyButtons = $('button[id^="wpvdb-apply-provider-change"]');
-            var cancelButtons = $('button[id^="wpvdb-cancel-provider-change"]');
+            var applyButtons = $('[id^="wpvdb-apply-provider-change"]');
+            var cancelButtons = $('[id^="wpvdb-cancel-provider-change"]');
             
             console.log('%c WPVDB DEBUG: Apply provider change buttons found:', 'background: #f0f0f0; color: #333; font-size: 14px; padding: 5px;', applyButtons.length);
             console.log('%c WPVDB DEBUG: Cancel provider change buttons found:', 'background: #f0f0f0; color: #333; font-size: 14px; padding: 5px;', cancelButtons.length);
@@ -342,10 +453,10 @@ jQuery(document).ready(function($) {
             });
             
             // Unbind any existing handlers to avoid duplicates
-            $('button[id^="wpvdb-apply-provider-change"]').off('click.wpvdb');
+            $('[id^="wpvdb-apply-provider-change"]').off('click.wpvdb');
             
             // Apply Provider Change buttons
-            $('button[id^="wpvdb-apply-provider-change"]').on('click.wpvdb', function(e) {
+            $('[id^="wpvdb-apply-provider-change"]').on('click.wpvdb', function(e) {
                 e.preventDefault();
                 console.log('%c WPVDB DEBUG: Apply provider change button clicked', 'background: #f44336; color: white; font-size: 14px; padding: 5px;');
                 console.log('%c WPVDB DEBUG: Button ID:', 'background: #f44336; color: white; font-size: 14px; padding: 5px;', $(this).attr('id'));
@@ -354,7 +465,7 @@ jQuery(document).ready(function($) {
                     ? wpvdb.i18n.confirm_provider_change 
                     : 'This will delete all existing embeddings and activate the new provider. Are you sure you want to continue?')) {
                     
-                    console.log('%c WPVDB DEBUG: User confirmed, sending AJAX request', 'background: #f44336; color: white; font-size: 14px; padding: 5px;');
+                    console.log('%c WPVDB DEBUG: User confirmed, sending AJAX request', 'background: #f44336; color: white; font-size: 5px;');
                     
                     // Log the data we're about to send
                     var requestData = {
@@ -380,7 +491,7 @@ jQuery(document).ready(function($) {
                                 console.error('%c WPVDB DEBUG: Error in response:', 'background: #f44336; color: white; font-size: 14px; padding: 5px;', response);
                                 alert(response.data && response.data.message ? response.data.message : 'Error applying provider change');
                                 // Remove visual feedback
-                                $('button[id^="wpvdb-apply-provider-change"]').removeClass('updating-message').prop('disabled', false);
+                                $('[id^="wpvdb-apply-provider-change"]').removeClass('updating-message').prop('disabled', false);
                             }
                         },
                         error: function(xhr, status, error) {
@@ -392,7 +503,7 @@ jQuery(document).ready(function($) {
                             });
                             alert('Error applying provider change: ' + error);
                             // Remove visual feedback
-                            $('button[id^="wpvdb-apply-provider-change"]').removeClass('updating-message').prop('disabled', false);
+                            $('[id^="wpvdb-apply-provider-change"]').removeClass('updating-message').prop('disabled', false);
                         }
                     });
                 } else {
@@ -401,10 +512,10 @@ jQuery(document).ready(function($) {
             });
             
             // Unbind any existing handlers to avoid duplicates
-            $('button[id^="wpvdb-cancel-provider-change"]').off('click.wpvdb');
+            $('[id^="wpvdb-cancel-provider-change"]').off('click.wpvdb');
             
             // Cancel Provider Change buttons - these might already be handled elsewhere, but let's be thorough
-            $('button[id^="wpvdb-cancel-provider-change"]').on('click.wpvdb', function(e) {
+            $('[id^="wpvdb-cancel-provider-change"]').on('click.wpvdb', function(e) {
                 e.preventDefault();
                 console.log('%c WPVDB DEBUG: Cancel provider change button clicked', 'background: #FF9800; color: black; font-size: 14px; padding: 5px;');
                 console.log('%c WPVDB DEBUG: Button ID:', 'background: #FF9800; color: black; font-size: 14px; padding: 5px;', $(this).attr('id'));
@@ -429,7 +540,7 @@ jQuery(document).ready(function($) {
                             console.error('%c WPVDB DEBUG: Error in response:', 'background: #f44336; color: white; font-size: 14px; padding: 5px;', response);
                             alert(response.data && response.data.message ? response.data.message : 'Error cancelling provider change');
                             // Remove visual feedback
-                            $('button[id^="wpvdb-cancel-provider-change"]').removeClass('updating-message').prop('disabled', false);
+                            $('[id^="wpvdb-cancel-provider-change"]').removeClass('updating-message').prop('disabled', false);
                         }
                     },
                     error: function(xhr, status, error) {
@@ -441,7 +552,7 @@ jQuery(document).ready(function($) {
                         });
                         alert('Error cancelling provider change: ' + error);
                         // Remove visual feedback
-                        $('button[id^="wpvdb-cancel-provider-change"]').removeClass('updating-message').prop('disabled', false);
+                        $('[id^="wpvdb-cancel-provider-change"]').removeClass('updating-message').prop('disabled', false);
                     }
                 });
             });
@@ -639,7 +750,7 @@ jQuery(document).ready(function($) {
                                 
                                 // If no more rows, refresh the page to show the "no embeddings" message
                                 if ($('table.wp-list-table tbody tr').length === 0) {
-                                    location.reload();
+                                   // location.reload();
                                 }
                             });
                         } else {
@@ -891,4 +1002,4 @@ jQuery(document).ready(function($) {
         // Initialize vector index handlers
         attachVectorIndexHandlers();
     });
-}); 
+});
